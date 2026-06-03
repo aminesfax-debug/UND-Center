@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="UND Atelier">
+<meta name="theme-color" content="#17171A">
+<link rel="apple-touch-icon" href="icon.png">
 <title>Atelier — Suivi Production</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -167,7 +172,26 @@ textarea{resize:vertical}
 .empty p{font-size:13px}
 
 /* mobile */
+.mobile-line-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden}
+.mlc-header{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;background:var(--surface2)}
+.mlc-num{width:26px;height:26px;background:#17171A;color:#FFF;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.mlc-summary{flex:1;font-size:13px;color:var(--text2)}
+.mlc-summary strong{color:var(--text);display:block;font-size:13px}
+.mlc-pcs{font-size:13px;font-weight:700;color:var(--teal);white-space:nowrap}
+.mlc-body{padding:14px;display:none;border-top:1px solid var(--border)}
+.mlc-body.open{display:block}
+.mlc-row{margin-bottom:10px}
+.mlc-row label{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px}
+.mlc-row input,.mlc-row select{font-size:15px;padding:10px 12px;border-radius:var(--r);border:1px solid var(--border2);width:100%;background:var(--surface);color:var(--text)}
+.mlc-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mlc-computed{display:flex;justify-content:space-between;background:var(--surface2);border-radius:var(--r);padding:10px 12px;margin-top:4px;font-size:12px}
+.mlc-computed span:last-child{font-weight:700;color:var(--teal)}
+.mobile-lines{display:none}
+.desktop-lines{display:block}
 @media(max-width:768px){
+.mobile-lines{display:block}
+.desktop-lines{display:none}
+
   .sidebar{display:none}
   .main{margin-left:0;padding-bottom:var(--bottombar)}
   .bottomnav{display:block}
@@ -217,6 +241,7 @@ textarea{resize:vertical}
     <button class="nav-item active" data-tab="dashboard"><i class="ti ti-home-2"></i>Tableau de bord</button>
     <button class="nav-item" data-tab="new_order"><i class="ti ti-file-plus"></i>Nouvelle commande</button>
     <button class="nav-item" data-tab="orders"><i class="ti ti-clipboard-list"></i>Commandes <span class="badge" id="badge-late" style="display:none">0</span></button>
+    <button class="nav-item nav-sub" data-tab="pending"><i class="ti ti-bell-ringing"></i>Demandes web <span class="badge" id="badge-pending" style="display:none;background:#185FA5">0</span></button>
     <button class="nav-item nav-sub" data-tab="orders" data-sub="articles" id="sub-articles"><i class="ti ti-article"></i>Articles commandés</button>
     <button class="nav-item nav-sub" data-tab="orders" data-sub="clients" id="sub-clients"><i class="ti ti-building-store"></i>Commandes clients</button>
     <div class="nav-section">Production</div>
@@ -390,7 +415,7 @@ const GAMMES={
   }
 };
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{}};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{}};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -581,7 +606,7 @@ function setTab(tab,sub){
   if(tab==="orders")S.subTab=sub||S.subTab||"articles";
   const titles={
     dashboard:"Tableau de bord",new_order:"Nouvelle commande",orders:S.subTab==="articles"?"Articles commandés":"Commandes clients",
-    launch:"Lancement OF",planning:"Planning semaine",apurement:"Apurement & Clôture",bons:"Bons d'entrée magasin"
+    launch:"Lancement OF",planning:"Planning semaine",apurement:"Apurement & Clôture",bons:"Bons d'entrée magasin",pending:"Demandes web clients"
   };
   document.getElementById("page-title").textContent=titles[tab]||tab;
   document.querySelectorAll(".nav-item[data-tab],.bn-item[data-tab]").forEach(b=>{
@@ -602,6 +627,24 @@ function updateBadges(){
     const el=document.getElementById(id);if(!el)return;
     el.style.display=n>0?"":"none";el.textContent=n;
   });
+  const p=S.pendingOrders.filter(o=>o.status==="EN_ATTENTE").length;
+  const bp=document.getElementById("badge-pending");
+  if(bp){bp.style.display=p>0?"":"none";bp.textContent=p;}
+}
+function acceptPendingOrder(id){
+  const o=S.pendingOrders.find(x=>x.id===id);if(!o)return;
+  const newOrder={...o,id:nextOF(),source:"WEB_CLIENT",status:"EN_ATTENTE",deadline:"Immédiat"};
+  S.orders=[...S.orders,newOrder];
+  saveOrders();
+  if(db)db.ref("pending_orders/"+id).remove();
+  else{S.pendingOrders=S.pendingOrders.filter(x=>x.id!==id);}
+  updateBadges();render();
+}
+function rejectPendingOrder(id){
+  if(!confirm("Rejeter cette demande ?"))return;
+  if(db)db.ref("pending_orders/"+id).remove();
+  else S.pendingOrders=S.pendingOrders.filter(x=>x.id!==id);
+  updateBadges();render();
 }
 
 // ═══════════════════════════════════════════
@@ -706,6 +749,79 @@ function renderNewOrder(){
 
   <div class="card">
     <div class="card-title" style="margin-bottom:12px"><i class="ti ti-list-details"></i>Lignes produits</div>
+
+    <!-- MOBILE: cartes empilées -->
+    <div class="mobile-lines" id="mobile-lines-container">
+      ${f.lines.map(l=>{
+        const isFacade=l.ref.startsWith("F-");
+        const isPerso=l.color==="Personnalisée";
+        const nbPcs=isFacade?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25;
+        const totalPoigneesCmd=f.lines.filter(x=>x.ref&&x.ref.startsWith("P-")).reduce((s,x)=>s+(parseFloat(x.qty)||0)*25,0);
+        const pt=parseFloat(l.prixTarif)||0;
+        const remiseVal=!isFacade&&l.ref?getRemisePoignee(totalPoigneesCmd,f.client).remise:(parseFloat(l.remise)||0);
+        const puNet=pt*(1-remiseVal/100);
+        const totalHT=puNet*nbPcs;
+        const hasData=l.ref&&l.qty;
+        return`<div class="mobile-line-card" id="mlc-${l.id}">
+          <div class="mlc-header" onclick="toggleMlc(${l.id})">
+            <div class="mlc-num">${l.id}</div>
+            <div class="mlc-summary">
+              ${hasData?`<strong>${esc(l.designation||l.ref)}</strong><span>${l.qty} pqt${l.qty>1?"s":""} — ${nbPcs>0?nbPcs.toLocaleString("fr-FR")+" pcs":""}</span>`:
+              `<span style="color:var(--text3);font-style:italic">Ligne vide — toucher pour saisir</span>`}
+            </div>
+            ${nbPcs>0?`<div class="mlc-pcs">${nbPcs.toLocaleString("fr-FR")} pcs</div>`:""}
+            <i class="ti ti-chevron-down" style="color:var(--text3);font-size:16px"></i>
+          </div>
+          <div class="mlc-body${hasData?" open":""}" id="mlc-body-${l.id}">
+            <div class="mlc-row">
+              <label>Référence</label>
+              <select data-lid="${l.id}" data-lf="ref" class="ref-sel">${refsOpts(l.ref)}</select>
+            </div>
+            <div class="mlc-2col">
+              <div class="mlc-row">
+                <label>Dimension</label>
+                <div>
+                  <select data-lid="${l.id}" data-lf="dim" class="dim-sel" style="display:${isFacade?"none":"block"}">${dimsOpts(l.dim,l.ref)}</select>
+                  <input type="text" data-lid="${l.id}" data-lf="dim" class="dim-inp" value="${isFacade?esc(l.dim):""}" placeholder="ex: 35 cm" style="display:${isFacade?"block":"none"}">
+                </div>
+              </div>
+              <div class="mlc-row" id="mlc-largeur-${l.id}" style="${isFacade?"":"opacity:.4;pointer-events:none"}">
+                <label>Largeur</label>
+                <input type="text" data-lid="${l.id}" data-lf="largeur" class="largeur-inp" value="${esc(l.largeur||"")}" placeholder="${isFacade?"ex: 60":"—"}" ${!isFacade?"disabled":""}>
+              </div>
+            </div>
+            <div class="mlc-row">
+              <label>Couleur</label>
+              <select data-lid="${l.id}" data-lf="color" class="color-inp">${colorsOpts(l.color)}</select>
+              <input type="text" data-lid="${l.id}" data-lf="colorCustom" class="color-custom" value="${esc(l.colorCustom||"")}" placeholder="Saisir la couleur…" style="margin-top:6px;display:${isPerso?"block":"none"}">
+            </div>
+            <div class="mlc-row">
+              <label>Désignation</label>
+              <input type="text" data-lid="${l.id}" data-lf="designation" class="desig-inp" value="${esc(l.designation||buildDesignation(l.ref,l.dim,l.largeur,l.color,l.colorCustom))}" readonly style="background:var(--surface2);color:var(--text2)">
+            </div>
+            <div class="mlc-2col">
+              <div class="mlc-row">
+                <label>Quantité (paquets)</label>
+                <input type="number" data-lid="${l.id}" data-lf="qty" value="${l.qty}" min="0" class="qty-input" style="font-size:16px">
+              </div>
+              <div class="mlc-row">
+                <label>Prix tarif / pcs</label>
+                <input type="number" data-lid="${l.id}" data-lf="prixTarif" value="${l.prixTarif||""}" step="0.001" min="0" class="prix-input">
+              </div>
+            </div>
+            <div class="mlc-computed">
+              <span>Nb pièces</span><span class="nb-pcs" data-facade="${isFacade}">${nbPcs>0?nbPcs.toLocaleString("fr-FR")+" pcs":"—"}</span>
+            </div>
+            <div class="mlc-computed" style="margin-top:6px">
+              <span>Total HT</span><span class="line-total-ht">${totalHT>0?totalHT.toFixed(3)+" TND":"—"}</span>
+            </div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+
+    <!-- DESKTOP: tableau -->
+    <div class="desktop-lines">
     <div class="table-scroll">
     <table style="min-width:960px"><thead><tr>
       <th style="width:22px">#</th>
@@ -776,6 +892,11 @@ function renderNewOrder(){
     <button class="btn btn-sm btn-teal" onclick="genPdfClient()"><i class="ti ti-file-invoice"></i>Confirmation client</button>
     <button class="btn btn-primary" onclick="submitOrder()"><i class="ti ti-check"></i>Valider la commande</button>
   </div>`;
+}
+
+function toggleMlc(lid){
+  const body=document.getElementById("mlc-body-"+lid);
+  if(body)body.classList.toggle("open");
 }
 
 // ═══════════════════════════════════════════
@@ -1637,6 +1758,7 @@ function render(){
   else if(S.tab==="planning")el.innerHTML=renderPlanning();
   else if(S.tab==="apurement")el.innerHTML=renderApurement();
   else if(S.tab==="bons")el.innerHTML=renderBons();
+  else if(S.tab==="pending")el.innerHTML=renderPending();
 
   // Attach status selects
   document.querySelectorAll(".st-sel[data-oid]").forEach(sel=>{
@@ -1720,6 +1842,46 @@ function genPdfClient(){
   w.document.write('</div><div class="footer">Useful New and Design SA \u2014 Route de l\'a\u00e9roport km 4, ZI Oued Chaabouni \u2014 info@unddesign.co</div></div>');
   w.document.write('<script>window.onload=function(){window.print();}<\/script></body></html>');
   w.document.close();
+}
+
+
+function renderPending(){
+  const pending=S.pendingOrders.filter(o=>o.status==="EN_ATTENTE");
+  const processed=S.pendingOrders.filter(o=>o.status!=="EN_ATTENTE");
+  if(!S.pendingOrders.length)return`<div class="card"><div class="empty"><i class="ti ti-bell"></i><p>Aucune demande de commande web reçue.</p></div></div>`;
+  let h="";
+  if(pending.length){
+    h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="background:var(--blue-bg);color:var(--blue);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">${pending.length} nouvelle${pending.length>1?"s":""} demande${pending.length>1?"s":""}</span>
+    </div>`;
+    h+=pending.map(o=>`
+    <div class="card" style="margin-bottom:12px;border-color:#B5D4F4">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <div style="font-weight:700;font-size:15px">${esc(o.client)}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">
+            Contact : ${esc(o.contact)} &nbsp;|&nbsp; Mobile : ${esc(o.mobile)} &nbsp;|&nbsp; ${o.date}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <button class="btn btn-teal btn-sm" onclick="acceptPendingOrder('${o.id}')"><i class="ti ti-check"></i>Accepter</button>
+          <button class="btn btn-sm btn-red" onclick="rejectPendingOrder('${o.id}')"><i class="ti ti-x"></i>Rejeter</button>
+        </div>
+      </div>
+      <div class="table-scroll"><table style="min-width:400px;font-size:12px"><thead><tr>
+        <th>Désignation</th><th>Dim.</th><th style="text-align:right">Qté</th><th style="text-align:right">Nb pcs</th><th style="text-align:right">P. Tarif</th>
+      </tr></thead><tbody>
+        ${(o.lines||[]).map(l=>`<tr>
+          <td style="font-weight:500">${esc(l.designation||l.ref)}</td>
+          <td style="color:var(--text2)">${l.dim?l.dim+" cm":"—"}</td>
+          <td style="text-align:right">${l.qty} ${l.unit||"pcs"}</td>
+          <td style="text-align:right;font-weight:700;color:var(--teal)">${(l.nbPcs||0).toLocaleString("fr-FR")}</td>
+          <td style="text-align:right;color:var(--text2)">${l.prixTarif?l.prixTarif.toFixed(3)+" TND":"—"}</td>
+        </tr>`).join("")}
+      </tbody></table></div>
+    </div>`).join("");
+  }
+  return h;
 }
 
 // ─── INIT ───
