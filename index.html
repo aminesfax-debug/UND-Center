@@ -261,6 +261,7 @@ textarea{resize:vertical}
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-sm no-print" id="btn-new-order" onclick="setTab('new_order')"><i class="ti ti-plus"></i><span class="hide-mobile">Commande</span></button>
+      <div id="conn-indicator" title="Firebase" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;margin-left:4px" aria-hidden="true"></div>
       </div>
     </div>
 
@@ -291,7 +292,7 @@ const WS=[
   {id:"peinture",name:"Ligne peinture",grp:"Finition"},{id:"inj125a",name:"Injection 125T-I",grp:"Injection"},
   {id:"inj125b",name:"Injection 125T-II",grp:"Injection"},{id:"inj220",name:"Injection 220T",grp:"Injection"},
 ];
-const REFS=["P-204","P-210","P-215","P-229","P-231","P-234","P-235","P-236","P-239","P-240","P-241","P-242","F-500","F-501","F-502","F-503"];
+const REFS=["P-204","P-210","P-215","P-229","P-231","P-234","P-235","P-236","P-239","P-240","P-241","P-242"];
 const DIMS=["","10","15","20","25","30","35","40","45","50","60","80","90","100","120","150"];
 const COLORS=["","Noir","Champagne","Moon light","Personnalisée"];
 // colorsOpts now uses full CODES_COULEUR list + Personnalisée
@@ -391,7 +392,70 @@ const CODES_COULEUR=[
   {code:"72",label:"Blanc / Vert Turquoise"},
   {code:"74",label:"Blanc Jaune"},
 ];
+
+const FACADE_MODELS={
+  "F-500":{label:"Façade 500 Standard",profil:"Profilé 45mm",handle:false,hingeType:"Blum 35mm"},
+  "F-501":{label:"Façade 501",profil:"Profilé 45mm",handle:"fixed",hingeType:"Blum 35mm"},
+  "F-502":{label:"Façade 502 Ultra Slim",profil:"Ultra Slim 21×14",handle:false,hingeType:"Aluminium"},
+  "F-503":{label:"Façade 503 Ultra Slim",profil:"Ultra Slim 21×14",handle:"fixed",hingeType:"Aluminium"},
+  "F-505":{label:"Façade 505",profil:"—",handle:false,hingeType:"270°"},
+  "SKIN-MINI":{label:"Skin Mini",profil:"Borderless 25mm",handle:"optional",hingeType:"Aluminium"},
+  "SKIN-MAXI":{label:"Skin Maxi",profil:"Borderless 45mm",handle:"optional",hingeType:"Blum 35mm"},
+};
+const GLASS_TYPES=["Transparent","Fumé noir","Stop sol noir","Stop sol gris"];
+
+function calcHingeCount(height){
+  if(height<=1000)return 2;
+  if(height<=1600)return 3;
+  if(height<=2400)return 4;
+  return 5;
+}
+function calcHingePositions(count,height){
+  if(count<1)return[];
+  if(count===1)return[Math.round(height/2)];
+  const first=135,last=height-135;
+  if(count===2)return[first,last];
+  const pos=[first];
+  const step=(last-first)/(count-1);
+  for(let i=1;i<count-1;i++)pos.push(Math.round(first+i*step));
+  pos.push(last);
+  return pos;
+}
+function buildFacadeDesignation(cfg){
+  const m=FACADE_MODELS[cfg.model];if(!m)return cfg.model||"";
+  const parts=[m.label];
+  if(cfg.width&&cfg.height)parts.push(cfg.width+"×"+cfg.height+"mm");
+  if(cfg.color)parts.push(cfg.color);
+  if(cfg.handle&&cfg.handle.has){
+    let h="Avec poignée";
+    if(cfg.handle.type)h+=" en "+cfg.handle.type;
+    if(cfg.handle.orientation)h+=" ("+cfg.handle.orientation+")";
+    parts.push(h);
+  }else if(m.handle==="fixed"){
+    parts.push("Avec poignée");
+  }
+  if(cfg.glass&&cfg.glass.has&&cfg.glass.type)parts.push("Verre "+cfg.glass.type);
+  if(cfg.hingesSupplied===false)parts.push("Sans charnières");
+  return parts.join(" — ");
+}
+function emptyFacadeConfig(model){
+  const m=FACADE_MODELS[model]||{};
+  return{
+    model,width:"",height:"",color:"",
+    handle:{has:m.handle==="fixed"||false,type:"U",orientation:"Horizontal"},
+    hingesSupplied:true,
+    hingeCount:2,hingePositions:[135,865],
+    glass:{has:false,type:"Transparent"},
+    qty:1,notes:""
+  };
+}
+
 const UNIT_FIXED="pqt 25 pcs";
+function isFacadeRef(ref){return ref&&(ref.startsWith("F-")||ref.startsWith("SKIN-"));}
+function nbPcsFromLine(l){
+  const isFac=isFacadeRef(l.ref);
+  return isFac?(parseFloat(l.nbPcs)||parseFloat(l.qty)||0):(parseFloat(l.nbPcs)||(parseFloat(l.qty)||0)*25);
+}
 const CURRENCIES=["TND","EUR","USD","DZD","MAD","GBP"];
 const STATUSES={
   "EN_ATTENTE":{label:"En attente",pill:"st-wait"},
@@ -415,7 +479,7 @@ const GAMMES={
   }
 };
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{}};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null}};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -482,31 +546,82 @@ function saveOfs(){
 
 async function loadAll(){
   if(db){
-    const [oSnap,pSnap,bSnap,ofSnap]=await Promise.all([
-      db.ref("orders").once("value"),
-      db.ref("plan").once("value"),
-      db.ref("bons").once("value"),
-      db.ref("ofs").once("value"),
-    ]);
-    S.orders=oSnap.val()||[];
-    S.plan=pSnap.val()||{};
-    S.bons=bSnap.val()||[];
-    S.ofs=ofSnap.val()||[];
-    // Listeners temps réel — sync automatique entre utilisateurs
+    // Helper: read with 8s timeout
+    function fbRead(path){
+      return Promise.race([
+        db.ref(path).once("value").then(s=>s.val()),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),8000))
+      ]);
+    }
+    try{
+      const [orders,plan,bons,ofs,pending]=await Promise.all([
+        fbRead("orders").catch(()=>null),
+        fbRead("plan").catch(()=>null),
+        fbRead("bons").catch(()=>null),
+        fbRead("ofs").catch(()=>null),
+        fbRead("pending_orders").catch(()=>null),
+      ]);
+      // Normalize orders array and each order's lines (Firebase converts arrays to objects)
+      const toArr=v=>Array.isArray(v)?v:(v?Object.values(v):[]);
+      S.orders=toArr(orders).map(o=>({...o,lines:toArr(o.lines),facadeLines:toArr(o.facadeLines)}));
+      S.plan=plan||{};
+      S.bons=toArr(bons);
+      S.ofs=toArr(ofs);
+      S.pendingOrders=pending?Object.values(pending).map(o=>({...o,lines:toArr(o.lines)})):[];
+    }catch(e){
+      console.warn("Firebase load error:",e);
+      S.orders=ls_get(K_ORDERS)||[];
+      S.plan=ls_get(K_PLAN)||{};
+      S.bons=ls_get(K_BONS)||[];
+      S.ofs=ls_get(K_OFS)||[];
+      S.pendingOrders=[];
+    }
+    // Real-time listeners
     db.ref("orders").on("value",snap=>{
-      const v=snap.val()||[];
-      // Ne re-rendre que si les données ont changé (évite boucle infinie sur nos propres écritures)
-      if(JSON.stringify(v)!==JSON.stringify(S.orders)){S.orders=v;updateBadges();render();}
+      const v=snap.val();
+      const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+      const arr=toA(v).map(o=>({...o,lines:toA(o.lines),facadeLines:toA(o.facadeLines)}));
+      if(JSON.stringify(arr)!==JSON.stringify(S.orders)){S.orders=arr;updateBadges();render();}
     });
     db.ref("bons").on("value",snap=>{
-      const v=snap.val()||[];
-      if(JSON.stringify(v)!==JSON.stringify(S.bons)){S.bons=v;if(S.tab==="bons")render();}
+      const v=snap.val();
+      const arr=Array.isArray(v)?v:(v?Object.values(v):[]);
+      if(JSON.stringify(arr)!==JSON.stringify(S.bons)){S.bons=arr;if(S.tab==="bons")render();}
+    });
+    db.ref("pending_orders").on("value",snap=>{
+      const v=Object.values(snap.val()||{});
+      if(JSON.stringify(v)!==JSON.stringify(S.pendingOrders)){S.pendingOrders=v;updateBadges();if(S.tab==="pending")render();}
+    });
+    try{db.ref("pending_orders").keepSynced(true);}catch(e){}
+    db.ref(".info/connected").on("value",snap=>{
+      const ok=snap.val();
+      const el=document.getElementById("conn-indicator");
+      if(el){el.style.background=ok?"#1D9E75":"#A32D2D";el.title=ok?"Firebase connecté":"Reconnexion en cours…";}
+      if(ok){db.ref("pending_orders").once("value").then(s=>{
+        const v=Object.values(s.val()||{});
+        if(JSON.stringify(v)!==JSON.stringify(S.pendingOrders)){S.pendingOrders=v;updateBadges();if(S.tab==="pending")render();}
+      }).catch(()=>{});}
+    });
+    setInterval(()=>{
+      db.ref("pending_orders").once("value").then(s=>{
+        const v=Object.values(s.val()||{});
+        if(JSON.stringify(v)!==JSON.stringify(S.pendingOrders)){S.pendingOrders=v;updateBadges();if(S.tab==="pending")render();}
+      }).catch(()=>{});
+    },45000);
+    document.addEventListener("visibilitychange",()=>{
+      if(!document.hidden){
+        db.ref("pending_orders").once("value").then(s=>{
+          const v=Object.values(s.val()||{});
+          if(JSON.stringify(v)!==JSON.stringify(S.pendingOrders)){S.pendingOrders=v;updateBadges();if(S.tab==="pending")render();}
+        }).catch(()=>{});
+      }
     });
   } else {
     S.orders=ls_get(K_ORDERS)||[];
     S.plan=ls_get(K_PLAN)||{};
     S.bons=ls_get(K_BONS)||[];
     S.ofs=ls_get(K_OFS)||[];
+    S.pendingOrders=[];
   }
   S.form=emptyForm();
 }
@@ -543,8 +658,11 @@ function nextPF(){
   return"PF-"+String(mx+1).padStart(3,"0");
 }
 function emptyForm(){
-  return{client:"",deadline:"",rep:"",paymentTerms:"",
-    lines:Array.from({length:10},(_,i)=>({id:i+1,ref:"",dim:"",largeur:"",designation:"",color:"",colorCustom:"",qty:"",unit:UNIT_FIXED,unitPrice:"",prixTarif:"",remise:""}))};
+  return{
+    client:"",deadline:"",rep:"",paymentTerms:"",
+    lines:Array.from({length:10},(_,i)=>({id:i+1,ref:"",dim:"",largeur:"",designation:"",color:"",colorCustom:"",qty:"",unit:UNIT_FIXED,prixTarif:"",remise:""})),
+    facadeLines:[],
+  };
 }
 function buildDesignation(ref,dim,largeur,color,colorCustom){
   if(!ref)return"";
@@ -554,9 +672,10 @@ function buildDesignation(ref,dim,largeur,color,colorCustom){
     parts.push("Poignée");
     parts.push(ref.replace("P-",""));
     if(dim)parts.push(dim+"cm");
-  } else if(ref.startsWith("F-")){
-    parts.push("Façade");
-    parts.push(ref.replace("F-",""));
+  } else if(ref.startsWith("F-")||ref.startsWith("SKIN-")){
+    const fm=FACADE_MODELS[ref];
+    if(fm){parts.push(fm.label);}
+    else{parts.push("Façade");parts.push(ref.replace("F-","").replace("SKIN-","Skin "));}
     if(largeur)parts.push(largeur+"cm");
     if(dim)parts.push("H"+dim+"cm");
   } else {
@@ -636,10 +755,12 @@ function acceptPendingOrder(id){
   // Calculate total poignées for remise
   const totalPoigneesCmd=(o.lines||[]).filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||0),0);
   const remiseInfo=getRemisePoignee(totalPoigneesCmd,o.client);
+  const remiseOverride=(S.remiseOverrides||{})[id];
+  const remiseApplied=remiseOverride!==undefined?remiseOverride:remiseInfo.remise;
   // Apply remise to each line
   const linesWithRemise=(o.lines||[]).map(l=>{
     const isFacade=l.ref&&l.ref.startsWith("F-");
-    const remise=isFacade?0:remiseInfo.remise;
+    const remise=isFacade?0:remiseApplied;
     const pt=parseFloat(l.prixTarif)||0;
     const puNet=pt*(1-remise/100);
     const nb=parseFloat(l.nbPcs)||0;
@@ -660,8 +781,10 @@ function acceptPendingOrder(id){
   if(db)db.ref("pending_orders/"+id).remove();
   else{S.pendingOrders=S.pendingOrders.filter(x=>x.id!==id);}
   updateBadges();
-  alert("✅ Commande "+newOrder.id+" acceptée — remise "+remiseInfo.remise+"% appliquée sur les poignées."+(remiseInfo.bonus>0?" + "+remiseInfo.bonus+"% client privilégié.":""));
-  render();
+  S.reviewId=null;
+  if(S.remiseOverrides)delete S.remiseOverrides[id];
+  alert("✅ Commande "+newOrder.id+" intégrée — remise "+remiseApplied+"% appliquée."+(remiseInfo.bonus>0?" + "+remiseInfo.bonus+"% client privilégié.":""));
+  setTab("orders","clients");
 }
 function rejectPendingOrder(id){
   if(!confirm("Rejeter cette demande ?"))return;
@@ -770,18 +893,21 @@ function renderNewOrder(){
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-title" style="margin-bottom:12px"><i class="ti ti-list-details"></i>Lignes produits</div>
+  <!-- ─── BLOC 1 : POIGNÉES ─────────────────── -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:12px">
+      <i class="ti ti-hand-grab"></i>Poignées
+    </div>
 
     <!-- MOBILE: cartes empilées -->
     <div class="mobile-lines" id="mobile-lines-container">
       ${f.lines.map(l=>{
-        const isFacade=l.ref.startsWith("F-");
+        const isFacade=false;
         const isPerso=l.color==="Personnalisée";
-        const nbPcs=isFacade?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25;
+        const nbPcs=(parseFloat(l.qty)||0)*25;
         const totalPoigneesCmd=f.lines.filter(x=>x.ref&&x.ref.startsWith("P-")).reduce((s,x)=>s+(parseFloat(x.qty)||0)*25,0);
         const pt=parseFloat(l.prixTarif)||0;
-        const remiseVal=!isFacade&&l.ref?getRemisePoignee(totalPoigneesCmd,f.client).remise:(parseFloat(l.remise)||0);
+        const remiseVal=l.ref?getRemisePoignee(totalPoigneesCmd,f.client).remise:0;
         const puNet=pt*(1-remiseVal/100);
         const totalHT=puNet*nbPcs;
         const hasData=l.ref&&l.qty;
@@ -796,44 +922,28 @@ function renderNewOrder(){
             <i class="ti ti-chevron-down" style="color:var(--text3);font-size:16px"></i>
           </div>
           <div class="mlc-body${hasData?" open":""}" id="mlc-body-${l.id}">
-            <div class="mlc-row">
-              <label>Référence</label>
-              <select data-lid="${l.id}" data-lf="ref" class="ref-sel">${refsOpts(l.ref)}</select>
-            </div>
+            <div class="mlc-row"><label>Référence</label>
+              <select data-lid="${l.id}" data-lf="ref" class="ref-sel">${refsOpts(l.ref)}</select></div>
             <div class="mlc-2col">
-              <div class="mlc-row">
-                <label>Dimension</label>
-                <div>
-                  <select data-lid="${l.id}" data-lf="dim" class="dim-sel" style="display:${isFacade?"none":"block"}">${dimsOpts(l.dim,l.ref)}</select>
-                  <input type="text" data-lid="${l.id}" data-lf="dim" class="dim-inp" value="${isFacade?esc(l.dim):""}" placeholder="ex: 35 cm" style="display:${isFacade?"block":"none"}">
-                </div>
-              </div>
-              <div class="mlc-row" id="mlc-largeur-${l.id}" style="${isFacade?"":"opacity:.4;pointer-events:none"}">
-                <label>Largeur</label>
-                <input type="text" data-lid="${l.id}" data-lf="largeur" class="largeur-inp" value="${esc(l.largeur||"")}" placeholder="${isFacade?"ex: 60":"—"}" ${!isFacade?"disabled":""}>
+              <div class="mlc-row"><label>Dimension</label>
+                <select data-lid="${l.id}" data-lf="dim" class="dim-sel" style="display:${false?"none":"block"}">${dimsOpts(l.dim,l.ref)}</select>
               </div>
             </div>
-            <div class="mlc-row">
-              <label>Couleur</label>
+            <div class="mlc-row"><label>Couleur</label>
               <select data-lid="${l.id}" data-lf="color" class="color-inp">${colorsOpts(l.color)}</select>
               <input type="text" data-lid="${l.id}" data-lf="colorCustom" class="color-custom" value="${esc(l.colorCustom||"")}" placeholder="Saisir la couleur…" style="margin-top:6px;display:${isPerso?"block":"none"}">
             </div>
-            <div class="mlc-row">
-              <label>Désignation</label>
-              <input type="text" data-lid="${l.id}" data-lf="designation" class="desig-inp" value="${esc(l.designation||buildDesignation(l.ref,l.dim,l.largeur,l.color,l.colorCustom))}" readonly style="background:var(--surface2);color:var(--text2)">
+            <div class="mlc-row"><label>Désignation</label>
+              <input type="text" data-lid="${l.id}" data-lf="designation" class="desig-inp" value="${esc(l.designation||buildDesignation(l.ref,l.dim,"","",l.colorCustom))}" readonly style="background:var(--surface2);color:var(--text2)">
             </div>
             <div class="mlc-2col">
-              <div class="mlc-row">
-                <label>Quantité (paquets)</label>
-                <input type="number" data-lid="${l.id}" data-lf="qty" value="${l.qty}" min="0" class="qty-input" style="font-size:16px">
-              </div>
-              <div class="mlc-row">
-                <label>Prix tarif / pcs</label>
-                <input type="number" data-lid="${l.id}" data-lf="prixTarif" value="${l.prixTarif||""}" step="0.001" min="0" class="prix-input">
-              </div>
+              <div class="mlc-row"><label>Quantité (paquets)</label>
+                <input type="number" data-lid="${l.id}" data-lf="qty" value="${l.qty}" min="0" class="qty-input" style="font-size:16px"></div>
+              <div class="mlc-row"><label>Prix tarif / pcs</label>
+                <input type="number" data-lid="${l.id}" data-lf="prixTarif" value="${l.prixTarif||""}" step="0.001" min="0" class="prix-input"></div>
             </div>
             <div class="mlc-computed">
-              <span>Nb pièces</span><span class="nb-pcs" data-facade="${isFacade}">${nbPcs>0?nbPcs.toLocaleString("fr-FR")+" pcs":"—"}</span>
+              <span>Nb pièces</span><span class="nb-pcs">${nbPcs>0?nbPcs.toLocaleString("fr-FR")+" pcs":"—"}</span>
             </div>
             <div class="mlc-computed" style="margin-top:6px">
               <span>Total HT</span><span class="line-total-ht">${totalHT>0?totalHT.toFixed(3)+" TND":"—"}</span>
@@ -846,69 +956,114 @@ function renderNewOrder(){
     <!-- DESKTOP: tableau -->
     <div class="desktop-lines">
     <div class="table-scroll">
-    <table style="min-width:960px"><thead><tr>
+    <table style="min-width:820px"><thead><tr>
       <th style="width:22px">#</th>
-      <th style="width:95px">Réf</th>
-      <th style="width:74px">Dim.</th>
-      <th style="width:74px">Largeur</th>
-      <th style="width:115px">Couleur</th>
+      <th style="width:100px">Réf</th>
+      <th style="width:78px">Dim.</th>
+      <th style="width:120px">Couleur</th>
       <th>Désignation</th>
-      <th style="width:60px">Qté</th>
-      <th style="width:76px;text-align:right">Nb Pcs</th>
+      <th style="width:64px">Qté (pqts)</th>
+      <th style="width:80px;text-align:right">Nb Pcs</th>
       <th style="width:78px">P.Tarif/pcs</th>
-      <th style="width:66px;text-align:center">Remise%</th>
-      <th style="width:82px;text-align:right">P.U. Net</th>
+      <th style="width:68px;text-align:center">Remise%</th>
+      <th style="width:88px;text-align:right">P.U. Net</th>
       <th style="width:90px;text-align:right">Total HT</th>
-    </tr></thead><tbody id="lines-body">
+    </tr></thead><tbody id="desk-tbody">
       ${f.lines.map(l=>{
-        const isFacade=l.ref.startsWith("F-");
+        const isFacade=false;
         const isPerso=l.color==="Personnalisée";
-        const nbPcs=isFacade?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25;
+        const nbPcs=(parseFloat(l.qty)||0)*25;
         const totalPoigneesCmd=f.lines.filter(x=>x.ref&&x.ref.startsWith("P-")).reduce((s,x)=>s+(parseFloat(x.qty)||0)*25,0);
         const pt=parseFloat(l.prixTarif)||0;
-        const remiseVal=!isFacade&&l.ref?getRemisePoignee(totalPoigneesCmd,f.client).remise:(parseFloat(l.remise)||0);
+        const remiseVal=l.ref?getRemisePoignee(totalPoigneesCmd,f.client).remise:0;
         const puNet=pt*(1-remiseVal/100);
         const totalHT=puNet*nbPcs;
         return`<tr>
         <td style="color:var(--text3);font-weight:600;font-size:11px">${l.id}</td>
-        <td><select data-lid="${l.id}" data-lf="ref" class="ref-sel" style="font-size:12px">${refsOpts(l.ref)}</select></td>
+        <td><select data-lid="${l.id}" data-lf="ref" class="ref-sel" style="font-size:11px">${refsOpts(l.ref)}</select></td>
         <td>
-          <select data-lid="${l.id}" data-lf="dim" class="dim-sel" style="font-size:12px;display:${isFacade?"none":"block"}">${dimsOpts(l.dim)}</select>
-          <input type="text" data-lid="${l.id}" data-lf="dim" class="dim-inp" value="${isFacade?esc(l.dim):""}" placeholder="ex: 35" style="font-size:12px;display:${isFacade?"block":"none"}">
+          <select data-lid="${l.id}" data-lf="dim" class="dim-sel" style="font-size:11px">${dimsOpts(l.dim,l.ref)}</select>
         </td>
-        <td><input type="text" data-lid="${l.id}" data-lf="largeur" class="largeur-inp" value="${esc(l.largeur||"")}" placeholder="${isFacade?"ex: 60":"—"}" style="font-size:12px;${!isFacade?"background:var(--surface2);color:var(--text3);":""}}" ${!isFacade?"disabled":""}></td>
         <td>
-          <select data-lid="${l.id}" data-lf="color" class="color-inp" style="font-size:12px">${colorsOpts(l.color)}</select>
-          <input type="text" data-lid="${l.id}" data-lf="colorCustom" class="color-custom" value="${esc(l.colorCustom||"")}" placeholder="Saisir couleur…" style="font-size:12px;margin-top:3px;display:${isPerso?"block":"none"}">
+          <select data-lid="${l.id}" data-lf="color" class="color-inp" style="font-size:11px">${colorsOpts(l.color)}</select>
+          <input type="text" data-lid="${l.id}" data-lf="colorCustom" class="color-custom" value="${esc(l.colorCustom||"")}" placeholder="Saisir…" style="font-size:11px;margin-top:3px;display:${isPerso?"block":"none"}">
         </td>
-        <td><input type="text" data-lid="${l.id}" data-lf="designation" class="desig-inp" value="${esc(l.designation||buildDesignation(l.ref,l.dim,l.largeur,l.color,l.colorCustom))}" placeholder="Auto-rempli…" style="font-size:12px;background:var(--surface2);color:var(--text2)" readonly></td>
+        <td><input type="text" data-lid="${l.id}" data-lf="designation" class="desig-inp" value="${esc(l.designation||buildDesignation(l.ref,l.dim,"","",""))}" style="font-size:11px;background:var(--surface2);color:var(--text2)" readonly></td>
         <td><input type="number" data-lid="${l.id}" data-lf="qty" value="${l.qty}" min="0" class="qty-input" style="font-size:11px"></td>
-        <td style="text-align:right;font-size:12px;font-weight:600;color:var(--teal)" class="nb-pcs" data-facade="${isFacade}">${nbPcs>0?nbPcs.toLocaleString("fr-FR"):"—"}</td>
+        <td style="text-align:right;font-size:12px;font-weight:600;color:var(--teal)" class="nb-pcs">${nbPcs>0?nbPcs.toLocaleString("fr-FR"):"—"}</td>
         <td><input type="number" data-lid="${l.id}" data-lf="prixTarif" value="${l.prixTarif||""}" step="0.001" min="0" class="prix-input" style="font-size:11px"></td>
         <td style="text-align:center">
-          ${!isFacade&&l.ref?`<span class="remise-auto" style="font-size:11px;font-weight:700;color:var(--teal)">${remiseVal}%</span>`:`<input type="number" data-lid="${l.id}" data-lf="remise" value="${l.remise||""}" step="1" min="0" max="100" class="remise-input" placeholder="0" style="font-size:11px;width:50px">`}
+          ${l.ref?`<span class="remise-auto" style="font-size:11px;font-weight:700;color:var(--teal)">${remiseVal}%</span>`:`<span style="color:var(--text3)">—</span>`}
         </td>
         <td style="text-align:right;font-size:11px;font-weight:600" class="pu-net">${pt>0?puNet.toFixed(3):"—"}</td>
         <td style="text-align:right;font-size:12px;font-weight:700" class="line-total-ht">${totalHT>0?totalHT.toFixed(3):"—"}</td>
       </tr>`;}).join("")}
     </tbody><tfoot>
       <tr style="background:var(--surface2);border-top:2px solid var(--border2)">
-        <td colspan="7" style="font-weight:600;font-size:12px;padding:8px 12px;color:var(--text2)"><i class="ti ti-hand-grab" style="margin-right:4px"></i>Total poignées</td>
-        <td style="text-align:right;font-weight:700;font-size:13px;padding:8px 12px;color:var(--teal)" id="total-pcs-poignees">${(()=>{const t=f.lines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);return t>0?t.toLocaleString("fr-FR")+" pcs":"—";})()}</td>
+        <td colspan="6" style="font-weight:600;font-size:12px;padding:8px 12px;color:var(--text2)"><i class="ti ti-hand-grab" style="margin-right:4px"></i>Total poignées</td>
+        <td style="text-align:right;font-weight:700;font-size:13px;padding:8px 12px;color:var(--teal)" id="total-pcs-poignees">—</td>
         <td colspan="4" style="text-align:right;font-weight:700;padding:8px 12px;color:var(--teal)" id="total-ht-poignees">—</td>
       </tr>
-      <tr style="background:var(--surface2)">
-        <td colspan="7" style="font-weight:600;font-size:12px;padding:8px 12px;color:var(--text2)"><i class="ti ti-layout-columns" style="margin-right:4px"></i>Total façades</td>
-        <td style="text-align:right;font-weight:700;font-size:13px;padding:8px 12px;color:var(--purple)" id="total-pcs-facades">${(()=>{const t=f.lines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.qty)||0),0);return t>0?t.toLocaleString("fr-FR")+" pcs":"—";})()}</td>
-        <td colspan="4" style="text-align:right;font-weight:700;padding:8px 12px;color:var(--purple)" id="total-ht-facades">—</td>
-      </tr>
-      <tr style="background:#17171A;color:#FFF">
-        <td colspan="7" style="font-weight:700;font-size:13px;padding:10px 12px">TOTAL GÉNÉRAL HT</td>
-        <td colspan="5" style="text-align:right;font-weight:700;font-size:15px;padding:10px 12px" id="total-ht-general">—</td>
-      </tr>
     </tfoot></table></div>
+    </div><!-- end desktop-lines -->
   </div>
 
+  <!-- ─── BLOC 2 : FAÇADES ───────────────────── -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title" style="margin-bottom:12px">
+      <i class="ti ti-layout-columns"></i>Façades
+      <button class="btn btn-sm" style="margin-left:auto;font-size:12px;color:var(--teal);border-color:var(--teal)"
+        onclick="openFacadeConf(null,null)">
+        <i class="ti ti-plus"></i>Ajouter une façade
+      </button>
+    </div>
+
+    <!-- Configurateur inline -->
+    ${S.facadeConf&&S.facadeConf.open?`<div style="background:var(--surface2);border-radius:var(--rl);padding:16px;margin-bottom:12px">${renderFacadeConfigurator()}</div>`:""}
+
+    <!-- Liste des façades configurées -->
+    ${f.facadeLines.length===0&&!(S.facadeConf&&S.facadeConf.open)?`
+    <div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:13px;font-style:italic">
+      Aucune façade ajoutée — cliquez sur "Ajouter une façade" pour commencer
+    </div>`:`
+    <div>
+      ${f.facadeLines.map((fl,i)=>`
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px">${i+1}. ${esc(fl.designation)}</div>
+          <div style="font-size:11px;color:var(--text2);display:flex;gap:12px;flex-wrap:wrap">
+            ${fl.facadeConfig.hingePositions&&fl.facadeConfig.hingePositions.length?`<span><i class="ti ti-tool" style="font-size:11px"></i> ${fl.facadeConfig.hingeCount} charnières ${fl.facadeConfig.hingesSupplied===false?"(non fournies)":"(fournies)"}</span>`:""}
+            ${fl.facadeConfig.glass&&fl.facadeConfig.glass.has?`<span><i class="ti ti-rectangle" style="font-size:11px"></i> Verre ${fl.facadeConfig.glass.type}</span>`:""}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
+            <label style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase">Qté</label>
+            <input type="number" value="${fl.qty||1}" min="1" style="font-size:14px;width:65px;text-align:center;padding:4px 6px"
+              oninput="S.form.facadeLines[${i}].qty=parseInt(this.value)||1">
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end">
+            <label style="font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase">P.Tarif/pcs</label>
+            <input type="number" value="${fl.prixTarif||""}" step="0.001" min="0" placeholder="0.000" style="font-size:12px;width:85px;text-align:right;padding:4px 6px"
+              oninput="S.form.facadeLines[${i}].prixTarif=parseFloat(this.value)||0;render()">
+          </div>
+          <button onclick="openFacadeConf('${fl.id}',null)" style="padding:6px 10px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--text2)">
+            <i class="ti ti-pencil"></i>
+          </button>
+          <button onclick="S.form.facadeLines.splice(${i},1);render()" style="padding:6px 10px;border-radius:var(--r);border:1px solid #F09595;background:var(--red-bg);cursor:pointer;font-size:12px;color:var(--red)">
+            <i class="ti ti-trash"></i>
+          </button>
+        </div>
+      </div>`).join("")}
+      ${f.facadeLines.length>0?`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:var(--r);margin-top:8px">
+        <span style="font-weight:600;font-size:12px;color:var(--text2)"><i class="ti ti-layout-columns" style="margin-right:4px"></i>Total façades</span>
+        <span style="font-weight:700;font-size:13px;color:var(--purple)">${f.facadeLines.reduce((s,fl)=>s+(parseInt(fl.qty)||0),0)} pcs — ${f.facadeLines.reduce((s,fl)=>{const pt=parseFloat(fl.prixTarif)||0;const rm=parseFloat(fl.remise)||0;return s+pt*(1-rm/100)*(parseInt(fl.qty)||0);},0).toFixed(3)} TND</span>
+      </div>`:""}
+    </div>`}
+  </div>
+
+  <!-- Actions -->
   <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap" class="no-print">
     <button class="btn" onclick="resetForm()"><i class="ti ti-refresh"></i>Réinitialiser</button>
     <button class="btn btn-sm" onclick="genPdfAtelier()"><i class="ti ti-printer"></i>Bon atelier</button>
@@ -917,13 +1072,9 @@ function renderNewOrder(){
   </div>`;
 }
 
-function toggleMlc(lid){
-  const body=document.getElementById("mlc-body-"+lid);
-  if(body)body.classList.toggle("open");
-}
 
 // ═══════════════════════════════════════════
-// ─── COMMANDES ───
+// ─── COMMANDES (dispatcher) ───
 // ═══════════════════════════════════════════
 function renderOrders(){
   const subNav=`<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
@@ -936,20 +1087,22 @@ function renderOrders(){
 }
 
 function renderArticles(){
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
   const allLines=[];
   S.orders.filter(o=>o.status!=="ANNULÉ").forEach(o=>{
-    (o.lines||[]).filter(l=>l.ref&&l.qty).forEach((l,i)=>{
+    toA(o.lines).filter(l=>l&&l.ref&&l.qty).forEach((l,i)=>{
       allLines.push({...l,ofId:o.id,client:o.client,deadline:o.deadline,status:o.status,rep:o.rep||"",lineKey:`${o.id}_${i}`});
+    });
+    toA(o.facadeLines).filter(l=>l&&l.ref&&l.qty>0).forEach((l,i)=>{
+      allLines.push({...l,ofId:o.id,client:o.client,deadline:o.deadline,status:o.status,rep:o.rep||"",lineKey:`${o.id}_fac_${i}`});
     });
   });
   if(!allLines.length)return`<div class="card"><div class="empty"><i class="ti ti-inbox"></i><p>Aucun article commandé.</p></div></div>`;
 
   const grouped=S.articlesGrouped;
   const sel=S.selectedArticles;
-
-  // Grand totals always visible
-  const totalPoigneesAll=allLines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
-  const totalFacadesAll=allLines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.qty)||0),0);
+  const totalPoigneesAll=allLines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const totalFacadesAll=allLines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
 
   const selCount=sel.size;
   const selBar=selCount>0?`
@@ -990,24 +1143,20 @@ function renderArticles(){
       <th style="text-align:right">Qté</th><th style="text-align:right">Nb pièces</th><th>Statut</th>
     </tr></thead><tbody>
       ${allLines.map(l=>{
-        const isFacade=l.ref.startsWith("F-");
-        const nbPcs=isFacade?parseFloat(l.qty):(parseFloat(l.qty)||0)*25;
-        // For poignées: use dim field, fallback to extracting from designation
+        const isFac=isFacadeRef(l.ref);
+        const nb=nbPcsFromLine(l);
         let dimRaw=l.dim||"";
-        if(!dimRaw&&!isFacade&&l.designation){
-          const m=l.designation.match(/(\d+)\s*cm/i);
-          if(m)dimRaw=m[1];
-        }
-        const dim=isFacade?(l.largeur&&l.dim?`${l.largeur}×${l.dim}`:l.largeur||l.dim||"—"):(dimRaw?`${dimRaw} cm`:"—");
+        if(!dimRaw&&!isFac&&l.designation){const m=l.designation.match(/(\d+)\s*cm/i);if(m)dimRaw=m[1];}
+        const dim=isFac?(l.largeur&&l.dim?`${l.largeur}×${l.dim}`:l.largeur||l.dim||"—"):(dimRaw?`${dimRaw} cm`:"—");
         const finalColor=l.color==="Personnalisée"?(l.colorCustom||"Perso"):l.color;
         const checked=sel.has(l.lineKey);
         return`<tr style="background:${checked?"#EBF4FF":""}">
           <td style="text-align:center"><input type="checkbox" ${checked?"checked":""} onchange="toggleArticle('${l.lineKey}')" style="cursor:pointer"></td>
           <td style="font-weight:500">${esc(l.designation||l.ref)}</td>
-          <td style="font-size:12px;color:var(--text2)">${dim||"—"}</td>
+          <td style="font-size:12px;color:var(--text2)">${dim}</td>
           <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${esc(finalColor||"—")}</td>
-          <td style="text-align:right;font-size:12px">${l.qty} ${isFacade?"pcs":"pqts"}</td>
-          <td style="text-align:right;font-weight:700;color:${isFacade?"var(--purple)":"var(--teal)"};">${nbPcs.toLocaleString("fr-FR")}</td>
+          <td style="text-align:right;font-size:12px">${l.qty} ${isFac?"pcs":"pqts"}</td>
+          <td style="text-align:right;font-weight:700;color:${isFac?"var(--purple)":"var(--teal)"};">${nb.toLocaleString("fr-FR")}</td>
           <td>${statusPill(l.status)}</td>
         </tr>`;
       }).join("")}
@@ -1016,11 +1165,11 @@ function renderArticles(){
     const groups={};
     allLines.forEach(l=>{
       const key=l.designation||l.ref;
-      const isFacade=l.ref.startsWith("F-");
-      const nbPcs=isFacade?parseFloat(l.qty):(parseFloat(l.qty)||0)*25;
-      if(!groups[key])groups[key]={key,designation:l.designation||l.ref,ref:l.ref,dim:l.dim,largeur:l.largeur,color:l.color,colorCustom:l.colorCustom,totalQty:0,totalPcs:0,ofs:[],statuses:[],isFacade,lineKeys:[]};
+      const isFac=isFacadeRef(l.ref);
+      const nb=nbPcsFromLine(l);
+      if(!groups[key])groups[key]={key,designation:l.designation||l.ref,ref:l.ref,dim:l.dim,largeur:l.largeur,color:l.color,colorCustom:l.colorCustom,totalQty:0,totalPcs:0,ofs:[],statuses:[],isFacade:isFac,lineKeys:[]};
       groups[key].totalQty+=parseFloat(l.qty)||0;
-      groups[key].totalPcs+=nbPcs;
+      groups[key].totalPcs+=nb;
       if(!groups[key].ofs.includes(l.ofId))groups[key].ofs.push(l.ofId);
       if(!groups[key].statuses.includes(l.status))groups[key].statuses.push(l.status);
       groups[key].lineKeys.push(l.lineKey);
@@ -1033,18 +1182,13 @@ function renderArticles(){
       <th style="text-align:right">Qté totale</th><th style="text-align:right">Nb pièces</th><th>Statuts</th>
     </tr></thead><tbody>
       ${gArr.map(g=>{
-        let dimRaw=g.dim||"";
-        if(!dimRaw&&!g.isFacade&&g.designation){
-          const m=g.designation.match(/(\d+)\s*cm/i);
-          if(m)dimRaw=m[1];
-        }
-        const dim=g.isFacade?(g.largeur&&g.dim?`${g.largeur}×${g.dim}`:g.largeur||g.dim||"—"):(dimRaw?`${dimRaw} cm`:"—");
+        const dim=g.isFacade?(g.largeur&&g.dim?`${g.largeur}×${g.dim}`:g.largeur||g.dim||"—"):(g.dim?`${g.dim} cm`:"—");
         const finalColor=g.color==="Personnalisée"?(g.colorCustom||"Perso"):g.color;
         const checked=sel.has(g.key);
         return`<tr style="background:${checked?"#EBF4FF":""}">
           <td style="text-align:center"><input type="checkbox" ${checked?"checked":""} onchange="toggleArticle('${g.key}')" style="cursor:pointer"></td>
           <td style="font-weight:600">${esc(g.designation)}</td>
-          <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${dim||"—"}</td>
+          <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${dim}</td>
           <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${esc(finalColor||"—")}</td>
           <td style="text-align:right;font-size:12px">${g.totalQty} ${g.isFacade?"pcs":"pqts"}</td>
           <td style="text-align:right;font-weight:700;color:${g.isFacade?"var(--purple)":"var(--teal)"};">${g.totalPcs.toLocaleString("fr-FR")}</td>
@@ -1067,56 +1211,28 @@ function toggleAllArticles(cb,keys){
   render();
 }
 function lancerOFSelection(){
-  // Build groups by reference
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
   const allLines=[];
   S.orders.filter(o=>o.status!=="ANNULÉ").forEach(o=>{
-    (o.lines||[]).filter(l=>l.ref&&l.qty).forEach((l,i)=>{
+    toA(o.lines).filter(l=>l&&l.ref&&l.qty).forEach((l,i)=>{
       allLines.push({...l,ofId:o.id,client:o.client,deadline:o.deadline,status:o.status,lineKey:`${o.id}_${i}`});
     });
   });
   const selKeys=S.selectedArticles;
   const selLines=allLines.filter(l=>selKeys.has(l.lineKey)||selKeys.has(l.designation||l.ref));
   if(!selLines.length){alert("Aucun article sélectionné.");return;}
-  // Group by ref
   const groups={};
   selLines.forEach(l=>{
     const ref=l.ref;
     if(!groups[ref])groups[ref]={ref,lines:[],totalPcs:0};
-    const isFacade=ref.startsWith("F-");
     groups[ref].lines.push(l);
-    groups[ref].totalPcs+=isFacade?parseFloat(l.qty):(parseFloat(l.qty)||0)*25;
+    groups[ref].totalPcs+=nbPcsFromLine(l);
   });
-  // Initialize gamme choices
   const choices={};
   Object.keys(groups).forEach(ref=>{if(GAMMES[ref])choices[ref]="Automatique";});
   S.ofLaunchGroups=groups;
   S.ofGammeChoices=choices;
   S.ofLaunchMode=true;
-  setTab("orders","articles");
-}
-
-function confirmerOF(){
-  const pf={
-    id:nextPF(),
-    date:todayStr(),
-    createdAt:new Date().toISOString(),
-    status:"LANCÉ",
-    groups:Object.values(S.ofLaunchGroups).map(g=>({
-      ref:g.ref,
-      gamme:S.ofGammeChoices[g.ref]||null,
-      postes:S.ofGammeChoices[g.ref]&&GAMMES[g.ref]?GAMMES[g.ref][S.ofGammeChoices[g.ref]]:(GAMMES[g.ref]?GAMMES[g.ref]["Automatique"]:[]),
-      lines:g.lines,
-      totalPcs:g.totalPcs,
-    })),
-  };
-  S.ofs=[...S.ofs,pf];
-  saveOfs();
-  S.ofLaunchMode=false;
-  S.selectedArticles=new Set();
-  S.ofLaunchGroups={};
-  S.ofGammeChoices={};
-  // Show confirmation
-  alert(`✅ ${pf.id} créé avec succès — ${pf.groups.length} référence(s) en production.`);
   setTab("launch");
 }
 
@@ -1132,22 +1248,143 @@ function renderClients(){
     }).join("")}
   </div>`;
   if(!sorted.length)return h+`<div class="card"><div class="empty"><i class="ti ti-inbox"></i><p>Aucune commande ici.</p></div></div>`;
-  h+=`<div class="card" style="padding:0;overflow:hidden"><div class="table-scroll"><table style="min-width:700px"><thead><tr>
-    <th>N° OF</th><th>Client</th><th class="hide-mobile">Représentant</th><th>Délai</th>
-    <th class="hide-mobile">Paiement</th><th>Statut</th><th class="hide-mobile">Articles</th><th>Changer statut</th>
-  </tr></thead><tbody>
-    ${sorted.map(o=>`<tr style="background:${lateOrders().find(l=>l.id===o.id)?"#FFF5F5":""}">
-      <td style="font-weight:700">${o.id}</td>
-      <td>${esc(o.client)}</td>
-      <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${esc(o.rep||"—")}</td>
-      <td>${dlLabel(daysLeft(o.deadline))}</td>
-      <td class="hide-mobile" style="font-size:11px;color:var(--text2)">${esc(o.paymentTerms||"—")}</td>
-      <td>${statusPill(o.status)}</td>
-      <td class="hide-mobile" style="font-size:11px;color:var(--text3)">${(o.lines||[]).filter(l=>l.ref).length} art.</td>
-      <td><select class="st-sel" data-oid="${o.id}" style="font-size:11px;padding:3px 5px;width:auto">${statusOpts(o.status)}</select></td>
-    </tr>`).join("")}
-  </tbody></table></div></div>`;
+
+  h+=sorted.map(o=>{
+    const isOpen=S.expandedOrder===o.id;
+    const isLate=!!lateOrders().find(l=>l.id===o.id);
+    const activeLines=(o.lines||[]).filter(l=>l.ref&&l.qty);
+    const totalP=activeLines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+    const totalF=activeLines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+    const totalHT=activeLines.reduce((s,l)=>{
+      const nb=nbPcsFromLine(l);
+      const pt=parseFloat(l.prixTarif)||0;
+      const rm=parseFloat(l.remise)||0;
+      return s+pt*(1-rm/100)*nb;
+    },0);
+
+    return`<div class="of-card" style="margin-bottom:8px;${isLate?"border-color:#F09595":""}">
+      <div class="of-card-header" onclick="S.expandedOrder=S.expandedOrder==='${o.id}'?null:'${o.id}';render()" style="padding:12px 14px">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
+          <span style="flex:1;font-size:13px;font-weight:600">${esc(o.client)}</span>
+          <span class="hide-mobile" style="font-size:12px;color:var(--text2)">${esc(o.rep||"—")}</span>
+          ${dlLabel(daysLeft(o.deadline))}
+          ${statusPill(o.status)}
+          <span class="hide-mobile" style="font-size:11px;color:var(--text3)">${activeLines.length} art.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <button onclick="event.stopPropagation();genPdfOrder('${o.id}')" title="Confirmation client" style="background:none;border:none;cursor:pointer;color:var(--text2);padding:4px;border-radius:var(--r)" onmouseover="this.style.color='var(--teal)'" onmouseout="this.style.color='var(--text2)'">
+            <i class="ti ti-file-invoice" style="font-size:18px"></i>
+          </button>
+          <select class="st-sel" data-oid="${o.id}" onclick="event.stopPropagation()" style="font-size:11px;padding:3px 5px;width:auto">${statusOpts(o.status)}</select>
+          <i class="ti ti-chevron-${isOpen?"up":"down"}" style="color:var(--text3);font-size:16px"></i>
+        </div>
+      </div>
+      ${isOpen?`<div style="padding:0 14px 14px;border-top:1px solid var(--border);background:var(--surface2)">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:12px 0;font-size:12px;margin-bottom:10px">
+          <div><span style="color:var(--text2)">Client :</span> <strong>${esc(o.client)}</strong></div>
+          <div><span style="color:var(--text2)">Délai :</span> <strong>${esc(o.deadline||"—")}</strong></div>
+          <div><span style="color:var(--text2)">Représentant :</span> <strong>${esc(o.rep||"—")}</strong></div>
+          <div><span style="color:var(--text2)">Paiement :</span> <strong>${esc(o.paymentTerms||"—")}</strong></div>
+          ${o.source==="WEB_CLIENT"?`<div><span style="background:var(--blue-bg);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">Commande web</span></div>`:""}
+        </div>
+        <div class="table-scroll">
+        <table style="min-width:480px;font-size:12px;background:var(--surface);border-radius:var(--r);overflow:hidden">
+          <thead><tr>
+            <th>Désignation</th><th class="hide-mobile">Dim.</th><th class="hide-mobile">Couleur</th>
+            <th style="text-align:right">Qté</th><th style="text-align:right">Nb pcs</th>
+            <th style="text-align:right">P.Tarif</th><th style="text-align:center">Remise</th>
+            <th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th>
+          </tr></thead>
+          <tbody>
+          ${activeLines.map(l=>{
+            const isFacade=l.ref.startsWith("F-");
+            let dimRaw=l.dim||"";
+            if(!dimRaw&&!isFacade&&l.designation){const m=l.designation.match(/(\d+)\s*cm/i);if(m)dimRaw=m[1];}
+            const dim=isFacade?(l.largeur&&l.dim?`${l.largeur}×${l.dim}`:l.largeur||l.dim||"—"):(dimRaw?`${dimRaw} cm`:"—");
+            const nb=parseFloat(l.nbPcs||0)||(isFacade?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25);
+            const pt=parseFloat(l.prixTarif)||0;
+            const rm=parseFloat(l.remise)||0;
+            const puNet=pt*(1-rm/100);
+            const tot=puNet*nb;
+            return`<tr>
+              <td style="font-weight:500">${esc(l.designation||l.ref)}</td>
+              <td class="hide-mobile" style="color:var(--text2)">${dim}</td>
+              <td class="hide-mobile" style="color:var(--text2)">${esc(l.color==="Personnalisée"?(l.colorCustom||"Perso"):l.color||"—")}</td>
+              <td style="text-align:right">${l.qty} ${isFacade?"pcs":"pqts"}</td>
+              <td style="text-align:right;font-weight:700;color:${isFacade?"var(--purple)":"var(--teal)"}">${nb.toLocaleString("fr-FR")}</td>
+              <td style="text-align:right;color:var(--text2)">${pt>0?pt.toFixed(3):"—"}</td>
+              <td style="text-align:center;font-weight:600;color:var(--teal)">${rm>0?rm+"%":"—"}</td>
+              <td style="text-align:right;color:var(--text2)">${puNet>0?puNet.toFixed(3):"—"}</td>
+              <td style="text-align:right;font-weight:700">${tot>0?tot.toFixed(3):"—"}</td>
+            </tr>`;
+          }).join("")}
+          </tbody>
+          <tfoot>
+            ${totalP>0?`<tr style="background:var(--surface2)"><td colspan="4" style="padding:7px 10px;font-weight:600;font-size:12px">Total poignées</td><td style="text-align:right;font-weight:700;color:var(--teal);padding:7px 10px">${totalP.toLocaleString("fr-FR")} pcs</td><td colspan="4" style="text-align:right;font-weight:700;padding:7px 10px">${activeLines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>{const nb=(parseFloat(l.nbPcs||0)||(parseFloat(l.qty)||0)*25);const pt=parseFloat(l.prixTarif)||0;const rm=parseFloat(l.remise)||0;return s+pt*(1-rm/100)*nb;},0).toFixed(3)} TND</td></tr>`:""}
+            ${totalF>0?`<tr style="background:var(--surface2)"><td colspan="4" style="padding:7px 10px;font-weight:600;font-size:12px">Total façades</td><td style="text-align:right;font-weight:700;color:var(--purple);padding:7px 10px">${totalF.toLocaleString("fr-FR")} pcs</td><td colspan="4" style="text-align:right;font-weight:700;padding:7px 10px">${activeLines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>{const nb=parseFloat(l.qty)||0;const pt=parseFloat(l.prixTarif)||0;const rm=parseFloat(l.remise)||0;return s+pt*(1-rm/100)*nb;},0).toFixed(3)} TND</td></tr>`:""}
+            <tr style="background:#17171A;color:#FFF"><td colspan="5" style="padding:8px 10px;font-weight:700">TOTAL GÉNÉRAL HT</td><td colspan="4" style="text-align:right;font-weight:700;font-size:14px;padding:8px 10px">${totalHT>0?totalHT.toFixed(3)+" TND":"—"}</td></tr>
+          </tfoot>
+        </table></div>
+      </div>`:""}
+    </div>`;
+  }).join("");
   return h;
+}
+
+function genPdfOrder(oid){
+  const o=S.orders.find(x=>x.id===oid);if(!o)return;
+  const lines=(o.lines||[]).filter(l=>l.ref&&l.qty);
+  const totalP=lines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs||0)||(parseFloat(l.qty)||0)*25),0);
+  const totalF=lines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.nbPcs||0)||parseFloat(l.qty)||0),0);
+  const bonusInfo=getRemisePoignee(totalP,o.client);
+  var totalHT=0;
+  var lineRows=lines.map(function(l,i){
+    var isFacade=l.ref.startsWith("F-");
+    var nb=parseFloat(l.nbPcs||0)||(isFacade?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25);
+    var pt=parseFloat(l.prixTarif)||0;
+    var rm=parseFloat(l.remise)||0;
+    var puNet=pt*(1-rm/100);
+    var tot=puNet*nb;
+    totalHT+=tot;
+    return'<tr><td>'+(i+1)+'</td><td>'+(l.designation||l.ref)+'</td>'+
+      '<td style="text-align:right">'+nb.toLocaleString("fr-FR")+'</td>'+
+      '<td style="text-align:right">'+(pt>0?pt.toFixed(3):"—")+'</td>'+
+      '<td style="text-align:center">'+(rm>0?rm+"%":"—")+'</td>'+
+      '<td style="text-align:right">'+(puNet>0?puNet.toFixed(3):"—")+'</td>'+
+      '<td style="text-align:right;font-weight:bold">'+(tot>0?tot.toFixed(3):"—")+'</td></tr>';
+  }).join("");
+  var bonusRow="";
+  if(bonusInfo.bonus>0){bonusRow='<tr style="background:#EAFAF1"><td colspan="5" style="font-style:italic;color:#0F6E56">Remise additionnelle client privilégié ('+bonusInfo.bonus+'%)</td><td colspan="2" style="text-align:right;font-weight:bold;color:#0F6E56">'+(-totalHT*bonusInfo.bonus/100).toFixed(3)+' TND</td></tr>';}
+  var totalFinal=bonusInfo.bonus>0?totalHT*(1-bonusInfo.bonus/100):totalHT;
+  const w=window.open("","_blank");
+  if(!w){alert("Autorisez les popups.");return;}
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+o.id+' — '+o.client+'</title>');
+  w.document.write('<style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:12px;margin:0;color:#111}.page{padding:30px 35px;max-width:820px;margin:0 auto}.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #111;padding-bottom:16px;margin-bottom:20px}.logo img{max-width:130px;max-height:65px}.company{text-align:right;font-size:11px;color:#444;line-height:1.7}.company strong{font-size:13px;color:#111;display:block;margin-bottom:4px}.doc-title{text-align:center;margin-bottom:20px}.doc-title h1{font-size:18px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px}.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;background:#F5F5F5;padding:12px;border-radius:6px;font-size:12px}.meta-grid div span{color:#666}table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11px}th{background:#17171A;color:#FFF;padding:7px 8px;text-align:left}td{padding:7px 8px;border-bottom:1px solid #E0E0E0}.totals-box{border-top:2px solid #111;padding-top:10px}.total-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px}.total-row.grand{font-size:15px;font-weight:bold;border-top:1px solid #CCC;margin-top:6px;padding-top:8px}.qte-summary{display:flex;gap:20px;margin-top:14px}.qte-box{background:#F5F5F5;border-radius:6px;padding:10px 16px;flex:1;text-align:center}.qte-box .val{font-size:20px;font-weight:bold}.footer{margin-top:30px;border-top:1px solid #DDD;padding-top:12px;font-size:10px;color:#888;text-align:center}@media print{.page{padding:15px}}</style></head><body><div class="page">');
+  w.document.write('<div class="header"><div class="logo"><img src="'+LOGO_B64+'" alt="UND"></div><div class="company"><strong>Useful New and Design SA</strong>Route de l\'aéroport km 4, ZI Oued Chaabouni<br>Mobile : 98 797 979<br>Email : info@unddesign.co</div></div>');
+  w.document.write('<div class="doc-title"><h1>Confirmation de commande</h1><div style="font-size:12px;color:#555">N° '+o.id+' &nbsp;|&nbsp; Date : '+new Date().toLocaleDateString("fr-FR")+(o.rep?' &nbsp;|&nbsp; Représentant : '+esc(o.rep):"")+'</div></div>');
+  w.document.write('<div class="meta-grid">'+
+    '<div><span>Client : </span><strong>'+esc(o.client)+'</strong></div>'+
+    '<div><span>Délai : </span><strong>'+esc(o.deadline||"—")+'</strong></div>'+
+    '<div><span>Paiement : </span><strong>'+esc(o.paymentTerms||"—")+'</strong></div>'+
+    '<div><span>Date : </span><strong>'+esc(o.date||"—")+'</strong></div>'+
+  '</div>');
+  w.document.write('<table><thead><tr><th>#</th><th>Désignation</th><th style="text-align:right">Nb pcs</th><th style="text-align:right">P.Tarif/pcs</th><th style="text-align:center">Remise</th><th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th></tr></thead><tbody>'+lineRows+bonusRow+'</tbody></table>');
+  w.document.write('<div class="totals-box">');
+  if(totalP>0)w.document.write('<div class="total-row"><span>Total poignées</span><span style="color:#0F6E56;font-weight:bold">'+totalP.toLocaleString("fr-FR")+' pcs</span></div>');
+  if(totalF>0)w.document.write('<div class="total-row"><span>Total façades</span><span style="color:#534AB7;font-weight:bold">'+totalF.toLocaleString("fr-FR")+' pcs</span></div>');
+  if(bonusInfo.bonus>0){
+    w.document.write('<div class="total-row grand"><span>Total HT avant remise privilégiée</span><span>'+totalHT.toFixed(3)+' TND</span></div>');
+    w.document.write('<div class="total-row" style="color:#0F6E56"><span>Remise client privilégié ('+bonusInfo.bonus+'%)</span><span>−'+(totalHT*bonusInfo.bonus/100).toFixed(3)+' TND</span></div>');
+    w.document.write('<div class="total-row grand" style="background:#EAFAF1;padding:8px 10px;border-radius:6px;margin-top:6px"><span>TOTAL GÉNÉRAL HT NET</span><span style="color:#0F6E56">'+totalFinal.toFixed(3)+' TND</span></div>');
+  } else {
+    w.document.write('<div class="total-row grand"><span>TOTAL GÉNÉRAL HT</span><span>'+totalFinal.toFixed(3)+' TND</span></div>');
+  }
+  w.document.write('</div><div class="qte-summary">');
+  if(totalP>0)w.document.write('<div class="qte-box"><div class="val">'+totalP.toLocaleString("fr-FR")+'</div><div>Poignées (pcs)</div></div>');
+  if(totalF>0)w.document.write('<div class="qte-box"><div class="val">'+totalF.toLocaleString("fr-FR")+'</div><div>Façades (pcs)</div></div>');
+  w.document.write('</div><div class="footer">Useful New and Design SA — Route de l\'aéroport km 4, ZI Oued Chaabouni — info@unddesign.co</div></div>');
+  w.document.write('<script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.close();
 }
 
 // ═══════════════════════════════════════════
@@ -1522,23 +1759,27 @@ function readForm(){
 function submitOrder(){
   readForm();
   const f=S.form;
-  const lines=f.lines.filter(l=>l.ref&&l.qty).map(l=>({
-    ...l,
-    unit:UNIT_FIXED,
-    designation:l.designation||buildDesignation(l.ref,l.dim,l.color),
+  const poigneeLines=f.lines.filter(l=>l.ref&&l.qty).map(l=>({
+    ...l,unit:UNIT_FIXED,
+    designation:l.designation||buildDesignation(l.ref,l.dim,l.largeur,l.color,l.colorCustom),
+    nbPcs:(parseFloat(l.qty)||0)*25,
   }));
+  const facadeLinesClean=(f.facadeLines||[]).filter(fl=>fl.ref&&fl.qty>0).map(fl=>({
+    ...fl,unit:"pcs",nbPcs:parseInt(fl.qty)||0,
+  }));
+  const lines=[...poigneeLines,...facadeLinesClean];
   if(!f.client||!f.deadline||!lines.length){
-    alert("Obligatoire : client, délai, et au moins une ligne avec référence + quantité.");return;
+    alert("Obligatoire : client, délai, et au moins une ligne poignée ou façade.");return;
   }
   const order={
     id:nextOF(),date:todayStr(),createdAt:new Date().toISOString(),
     client:f.client,deadline:f.deadline,rep:f.rep,paymentTerms:f.paymentTerms,
-lines:f.lines.filter(l=>l.ref&&l.qty).map(l=>({...l,prixTarif:l.prixTarif,remise:l.remise})),status:"EN_ATTENTE",
+    lines,status:"EN_ATTENTE",
   };
   S.orders=[...S.orders,order];
   saveOrders();
   S.form=emptyForm();
-  setTab("orders");
+  setTab("orders","clients");
 }
 
 function launchOF(oid){
@@ -1646,12 +1887,14 @@ function attachFormListeners(){
   if(S.tab!=="new_order")return;
 
   function updateDesignation(lid){
-    const refEl=document.querySelector(`.ref-sel[data-lid="${lid}"]`);
-    const dimSelEl=document.querySelector(`.dim-sel[data-lid="${lid}"]`);
-    const dimInpEl=document.querySelector(`.dim-inp[data-lid="${lid}"]`);
-    const largeurEl=document.querySelector(`.largeur-inp[data-lid="${lid}"]`);
-    const colorEl=document.querySelector(`.color-inp[data-lid="${lid}"]`);
-    const colorCustomEl=document.querySelector(`.color-custom[data-lid="${lid}"]`);
+    // Scope to desktop table to avoid mobile card duplicates
+    const sc=document.getElementById("desk-tbody")||document;
+    const refEl=sc.querySelector(`.ref-sel[data-lid="${lid}"]`);
+    const dimSelEl=sc.querySelector(`.dim-sel[data-lid="${lid}"]`);
+    const dimInpEl=sc.querySelector(`.dim-inp[data-lid="${lid}"]`);
+    const largeurEl=sc.querySelector(`.largeur-inp[data-lid="${lid}"]`);
+    const colorEl=sc.querySelector(`.color-inp[data-lid="${lid}"]`);
+    const colorCustomEl=sc.querySelector(`.color-custom[data-lid="${lid}"]`);
 
     const ref=refEl?refEl.value:"";
     const isFacade=ref.startsWith("F-");
@@ -1683,46 +1926,80 @@ function attachFormListeners(){
     const line=S.form.lines.find(l=>l.id===lid);
     if(line){
       line.ref=ref;line.dim=dim;line.largeur=largeur;line.color=color;line.colorCustom=colorCustom;line.designation=desig;
+
       // Auto-fill prix tarif from table
       const autoPrice=getPrixTarif(ref,dim);
       if(autoPrice!==""){
         line.prixTarif=autoPrice;
-        const prixEl=document.querySelector(`.prix-input[data-lid="${lid}"]`);
+        const sc3=document.getElementById("desk-tbody")||document;
+        const prixEl=sc3.querySelector(`.prix-input[data-lid="${lid}"]`);
         if(prixEl)prixEl.value=autoPrice;
       }
     }
-    const inp=document.querySelector(`.desig-inp[data-lid="${lid}"]`);
+    const sc4=document.getElementById("desk-tbody")||document;
+    const inp=sc4.querySelector(`.desig-inp[data-lid="${lid}"]`);
     if(inp)inp.value=desig;
     updateLineTotals(lid);
   }
 
   function updateLineTotals(lid){
     const line=S.form.lines.find(l=>l.id===lid);if(!line)return;
-    const isFacade=line.ref.startsWith("F-");
+    const isFacade=line.ref&&(line.ref.startsWith("F-")||line.ref.startsWith("SKIN-"));
     const q=parseFloat(line.qty)||0;
     const nbPcs=isFacade?q:q*25;
-    // Update the nb-pcs cell for this line
-    const nbCell=document.querySelector(`.nb-pcs[data-lid="${lid}"]`)||
-      document.querySelector(`[data-lid="${lid}"].nb-pcs`);
-    // Find nb-pcs in same row
-    const qtyEl=document.querySelector(`[data-lid="${lid}"][data-lf="qty"]`);
+    const pt=parseFloat(line.prixTarif)||0;
+    const totalPoigneesCmd=S.form.lines.filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
+    const rm=isFacade?parseFloat(line.remise)||0:getRemisePoignee(totalPoigneesCmd,S.form.client).remise;
+    const puNet=pt*(1-rm/100);
+    const totalHT=puNet*nbPcs;
+
+    // Update nb-pcs, remise, pu-net, line-total-ht in this row
+    const sc2=document.getElementById("desk-tbody")||document;
+    const qtyEl=sc2.querySelector(`[data-lid="${lid}"][data-lf="qty"]`);
     if(qtyEl){
       const row=qtyEl.closest("tr");
       if(row){
-        const nb=row.querySelector(".nb-pcs");
-        if(nb){nb.textContent=q>0?nbPcs.toLocaleString("fr-FR"):"—";nb.dataset.facade=isFacade;}
+        const nb=row.querySelector(".nb-pcs");if(nb)nb.textContent=q>0?nbPcs.toLocaleString("fr-FR"):"—";
+        const remEl=row.querySelector(".remise-auto");if(remEl)remEl.textContent=rm+"%";
+        const puEl=row.querySelector(".pu-net");if(puEl)puEl.textContent=pt>0?puNet.toFixed(3):"—";
+        const totEl=row.querySelector(".line-total-ht");if(totEl)totEl.textContent=totalHT>0?totalHT.toFixed(3):"—";
+        // Update prix tarif input if auto-filled
+        const pxEl=row.querySelector(".prix-input");if(pxEl&&line.prixTarif)pxEl.value=line.prixTarif;
       }
     }
-    // Refresh both footer totals from state
-    const totalP=S.form.lines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
-    const totalF=S.form.lines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.qty)||0),0);
-    const elP=document.getElementById("total-pcs-poignees");
-    const elF=document.getElementById("total-pcs-facades");
-    if(elP)elP.textContent=totalP>0?totalP.toLocaleString("fr-FR"):"—";
-    if(elF)elF.textContent=totalF>0?totalF.toLocaleString("fr-FR"):"—";
+
+    // Refresh footer totals
+    const lines=S.form.lines;
+    const totalPcs=lines.filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
+    const rmGlobal=getRemisePoignee(totalPcs,S.form.client).remise;
+    const totalHTP=lines.filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>{
+      const n=(parseFloat(l.qty)||0)*25;const p=parseFloat(l.prixTarif)||0;
+      return s+p*(1-rmGlobal/100)*n;},0);
+
+    const e=id=>document.getElementById(id);
+    if(e("total-pcs-poignees"))e("total-pcs-poignees").textContent=totalPcs>0?totalPcs.toLocaleString("fr-FR")+" pcs":"—";
+    if(e("total-ht-poignees"))e("total-ht-poignees").textContent=totalHTP>0?totalHTP.toFixed(3)+" TND":"—";
+    if(e("total-ht-general"))e("total-ht-general").textContent=totalHTP>0?totalHTP.toFixed(3)+" TND":"—";
+
+    // Also refresh remise% on ALL poignee rows (global remise can change with any qty)
+    const sc5=document.getElementById("desk-tbody")||document;
+    lines.filter(l=>l.ref&&l.ref.startsWith("P-")&&l.id!==lid).forEach(l2=>{
+      const qtyEl2=sc5.querySelector(`[data-lid="${l2.id}"][data-lf="qty"]`);
+      if(qtyEl2){const row2=qtyEl2.closest("tr");if(row2){
+        const pt2=parseFloat(l2.prixTarif)||0;
+        const q2=parseFloat(l2.qty)||0;const nb2=q2*25;
+        const puNet2=pt2*(1-rmGlobal/100);const tot2=puNet2*nb2;
+        const remEl2=row2.querySelector(".remise-auto");if(remEl2)remEl2.textContent=rmGlobal+"%";
+        const puEl2=row2.querySelector(".pu-net");if(puEl2)puEl2.textContent=pt2>0?puNet2.toFixed(3):"—";
+        const totEl2=row2.querySelector(".line-total-ht");if(totEl2)totEl2.textContent=tot2>0?tot2.toFixed(3):"—";
+      }}
+    });
   }
 
-  document.querySelectorAll("[data-lid]").forEach(el=>{
+  // Scope listeners to desktop table only (avoid picking up hidden mobile cards)
+  const deskTbody=document.getElementById("desk-tbody");
+  const scope=deskTbody||document;
+  scope.querySelectorAll("[data-lid]").forEach(el=>{
     const lf=el.dataset.lf;
     if(lf==="designation")return;
     const handler=()=>{
@@ -1798,9 +2075,12 @@ function render(){
 function genPdfAtelier(){
   readForm();
   const f=S.form;
-  const lines=f.lines.filter(l=>l.ref&&l.qty);
-  const totalP=lines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
-  const totalF=lines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.qty)||0),0);
+  const toA2=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const poigLines=toA2(f.lines).filter(l=>l&&l.ref&&l.qty);
+  const facLines=toA2(f.facadeLines).filter(l=>l&&l.ref&&l.qty>0);
+  const lines=[...poigLines,...facLines];
+  const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const totalF=lines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
   const w=window.open("","_blank");
   if(!w){alert("Autorisez les popups pour générer le PDF.");return;}
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bon Atelier</title><style>body{font-family:Arial,sans-serif;font-size:13px;margin:30px;color:#111}h2{font-size:18px;margin-bottom:4px}.meta{font-size:12px;color:#555;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{background:#17171A;color:#FFF;padding:8px 10px;text-align:left;font-size:12px}td{padding:8px 10px;border-bottom:1px solid #DDD;font-size:12px}.totals{margin-top:16px;border-top:2px solid #111;padding-top:10px;font-weight:bold}@media print{button{display:none}}</style></head><body>');
@@ -1808,8 +2088,8 @@ function genPdfAtelier(){
   w.document.write('<div class="meta">Client : <strong>'+f.client+'</strong> &nbsp;|\u00a0 D\u00e9lai : <strong>'+f.deadline+'</strong> &nbsp;|\u00a0 Repr\u00e9sentant : <strong>'+(f.rep||'\u2014')+'</strong> &nbsp;|\u00a0 Date : <strong>'+new Date().toLocaleDateString("fr-FR")+'</strong></div>');
   w.document.write('<table><thead><tr><th>#</th><th>D\u00e9signation</th><th style="text-align:right">Qt\u00e9</th><th style="text-align:right">Nb pi\u00e8ces</th></tr></thead><tbody>');
   lines.forEach(function(l,i){
-    var isFacade=l.ref.startsWith("F-");
-    var nb=isFacade?parseFloat(l.qty):(parseFloat(l.qty)||0)*25;
+    var isFacade=isFacadeRef(l.ref);
+    var nb=nbPcsFromLine(l);
     w.document.write('<tr><td>'+(i+1)+'</td><td>'+(l.designation||l.ref)+'</td><td style="text-align:right">'+l.qty+' '+(isFacade?"pcs":"pqts")+'</td><td style="text-align:right;font-weight:bold">'+nb.toLocaleString("fr-FR")+'</td></tr>');
   });
   w.document.write('</tbody></table>');
@@ -1821,14 +2101,17 @@ function genPdfAtelier(){
 function genPdfClient(){
   readForm();
   const f=S.form;
-  const lines=f.lines.filter(l=>l.ref&&l.qty);
-  const totalP=lines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
-  const totalF=lines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.qty)||0),0);
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const poigLines=toA(f.lines).filter(l=>l&&l.ref&&l.qty);
+  const facLines=toA(f.facadeLines).filter(l=>l&&l.ref&&l.qty>0);
+  const lines=[...poigLines,...facLines];
+  const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const totalF=lines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
   var totalHT=0;
   var lineRows="";
   lines.forEach(function(l,i){
-    var isFacade=l.ref.startsWith("F-");
-    var nb=isFacade?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25;
+    var isFacade=isFacadeRef(l.ref);
+    var nb=nbPcsFromLine(l);
     var pt=parseFloat(l.prixTarif)||0;
     var rm=isFacade?parseFloat(l.remise)||0:getRemisePoignee(totalP,f.client).remise;
     var puNet=pt*(1-rm/100);
@@ -1869,6 +2152,12 @@ function genPdfClient(){
 
 
 function renderPending(){
+  // If reviewing a specific order, show review panel
+  if(S.reviewId){
+    const o=S.pendingOrders.find(x=>x.id===S.reviewId);
+    if(o)return renderReviewPanel(o);
+    S.reviewId=null;
+  }
   const pending=S.pendingOrders.filter(o=>o.status==="EN_ATTENTE");
   const processed=S.pendingOrders.filter(o=>o.status!=="EN_ATTENTE");
   if(!S.pendingOrders.length)return`<div class="card"><div class="empty"><i class="ti ti-bell"></i><p>Aucune demande de commande web reçue.</p></div></div>`;
@@ -1887,8 +2176,7 @@ function renderPending(){
           </div>
         </div>
         <div style="display:flex;gap:8px;flex-shrink:0">
-          <button class="btn btn-sm" onclick="genPdfFromPending('${o.id}')"><i class="ti ti-file-invoice"></i>Confirmation</button>
-          <button class="btn btn-teal btn-sm" onclick="acceptPendingOrder('${o.id}')"><i class="ti ti-check"></i>Accepter</button>
+          <button class="btn btn-teal btn-sm" onclick="openReview('${o.id}')"><i class="ti ti-eye"></i>Réviser</button>
           <button class="btn btn-sm btn-red" onclick="rejectPendingOrder('${o.id}')"><i class="ti ti-x"></i>Rejeter</button>
         </div>
       </div>
@@ -1908,18 +2196,124 @@ function renderPending(){
   return h;
 }
 
+function openReview(id){S.reviewId=id;setTab("pending");}
+
+function renderReviewPanel(o){
+  const toA3=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const lines=toA3(o.lines).filter(l=>l&&l.ref&&l.qty);
+  const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const totalF=lines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const autoRemise=getRemisePoignee(totalP,o.client);
+  // Get current remise overrides from state
+  const overrides=S.remiseOverrides||{};
+  const globalRemiseP=overrides[o.id]!==undefined?overrides[o.id]:autoRemise.remise;
+
+  // Compute totals
+  let totalHT=0;
+  const lineRows=lines.map((l,i)=>{
+    const isFacade=l.ref.startsWith("F-");
+    const nb=parseFloat(l.nbPcs)||0;
+    const pt=parseFloat(l.prixTarif)||0;
+    const rm=isFacade?0:globalRemiseP;
+    const puNet=pt*(1-rm/100);
+    const tot=puNet*nb;
+    totalHT+=tot;
+    return`<tr>
+      <td style="font-weight:500">${esc(l.designation||l.ref)}</td>
+      <td style="text-align:right;color:var(--text2)">${nb.toLocaleString("fr-FR")}</td>
+      <td style="text-align:right;color:var(--text2)">${pt>0?pt.toFixed(3):"—"}</td>
+      <td style="text-align:center;font-weight:700;color:var(--teal)">${rm>0?rm+"%":"—"}</td>
+      <td style="text-align:right;color:var(--text2)">${pt>0?(pt*(1-rm/100)).toFixed(3):"—"}</td>
+      <td style="text-align:right;font-weight:700">${tot>0?tot.toFixed(3):"—"}</td>
+    </tr>`;
+  }).join("");
+  const bonusInfo=getRemisePoignee(totalP,o.client);
+  const totalFinal=bonusInfo.bonus>0?totalHT*(1-bonusInfo.bonus/100):totalHT;
+
+  return`
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <button class="btn btn-sm" onclick="S.reviewId=null;render()"><i class="ti ti-arrow-left"></i>Retour</button>
+    <span style="font-weight:700;font-size:15px">Révision commande — ${esc(o.client)}</span>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;font-size:13px">
+      <div><span style="color:var(--text2)">Client :</span> <strong>${esc(o.client)}</strong></div>
+      <div><span style="color:var(--text2)">Contact :</span> <strong>${esc(o.contact||"—")}</strong></div>
+      <div><span style="color:var(--text2)">Mobile :</span> <strong>${esc(o.mobile||"—")}</strong></div>
+      <div><span style="color:var(--text2)">Date demande :</span> <strong>${esc(o.date||"—")}</strong></div>
+    </div>
+  </div>
+
+  <!-- Remise poignées -->
+  <div class="card" style="margin-bottom:14px;border-color:${globalRemiseP!==autoRemise.remise?"#B5D4F4":"var(--border)"}">
+    <div class="card-title"><i class="ti ti-discount"></i>Remise poignées</div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Remise automatique (${totalP.toLocaleString("fr-FR")} pcs)</div>
+        <div style="font-size:22px;font-weight:700;color:var(--teal)">${autoRemise.remise}%</div>
+      </div>
+      <div style="font-size:20px;color:var(--text3)">→</div>
+      <div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Remise appliquée (modifiable)</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="number" id="remise-override" value="${globalRemiseP}" min="0" max="100" step="1"
+            style="font-size:22px;font-weight:700;width:90px;padding:6px 10px;border:2px solid ${globalRemiseP!==autoRemise.remise?"var(--blue)":"var(--border2)"};border-radius:var(--r);color:var(--teal)"
+            oninput="applyRemiseOverride('${o.id}',this.value)">
+          <span style="font-size:20px;font-weight:700;color:var(--teal)">%</span>
+          ${globalRemiseP!==autoRemise.remise?`<button class="btn btn-xs" onclick="applyRemiseOverride('${o.id}',${autoRemise.remise})"><i class="ti ti-refresh"></i>Réinitialiser</button>`:""}
+        </div>
+      </div>
+      ${bonusInfo.bonus>0?`<div style="background:var(--teal-bg);color:var(--teal);padding:6px 12px;border-radius:var(--r);font-size:12px;font-weight:600">+ ${bonusInfo.bonus}% client privilégié en bas de facture</div>`:""}
+    </div>
+  </div>
+
+  <!-- Tableau des lignes -->
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+    <div class="table-scroll"><table style="min-width:500px;font-size:12px"><thead><tr>
+      <th>Désignation</th><th style="text-align:right">Nb pcs</th>
+      <th style="text-align:right">P.Tarif</th><th style="text-align:center">Remise</th>
+      <th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th>
+    </tr></thead><tbody id="review-lines">${lineRows}</tbody>
+    <tfoot>
+      ${totalP>0?`<tr style="background:var(--surface2)"><td colspan="5" style="padding:7px 10px;font-weight:600;font-size:12px">Total poignées</td><td style="text-align:right;font-weight:700;color:var(--teal);padding:7px 10px">${totalP.toLocaleString("fr-FR")} pcs</td></tr>`:""}
+      ${totalF>0?`<tr style="background:var(--surface2)"><td colspan="5" style="padding:7px 10px;font-weight:600;font-size:12px">Total façades</td><td style="text-align:right;font-weight:700;color:var(--purple);padding:7px 10px">${totalF.toLocaleString("fr-FR")} pcs</td></tr>`:""}
+      ${bonusInfo.bonus>0?`
+      <tr style="background:var(--surface2)"><td colspan="5" style="padding:7px 10px;font-weight:600">Total HT avant remise privilégiée</td><td style="text-align:right;font-weight:700;padding:7px 10px">${totalHT.toFixed(3)} TND</td></tr>
+      <tr style="background:#EAFAF1"><td colspan="5" style="padding:7px 10px;color:var(--teal)">Remise client privilégié (${bonusInfo.bonus}%)</td><td style="text-align:right;font-weight:700;color:var(--teal);padding:7px 10px">−${(totalHT*bonusInfo.bonus/100).toFixed(3)} TND</td></tr>
+      `:""}
+      <tr style="background:#17171A;color:#FFF"><td colspan="5" style="padding:9px 10px;font-weight:700">TOTAL GÉNÉRAL HT</td><td style="text-align:right;font-weight:700;font-size:15px;padding:9px 10px">${totalFinal.toFixed(3)} TND</td></tr>
+    </tfoot></table></div>
+  </div>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <button class="btn btn-sm" onclick="genPdfFromPending('${o.id}')"><i class="ti ti-file-invoice"></i>Générer confirmation PDF</button>
+    <button class="btn btn-teal" onclick="acceptPendingOrder('${o.id}')"><i class="ti ti-check"></i>Confirmer et intégrer la commande</button>
+    <button class="btn btn-sm btn-red" onclick="rejectPendingOrder('${o.id}')"><i class="ti ti-x"></i>Rejeter</button>
+  </div>`;
+}
+
+function applyRemiseOverride(id,val){
+  if(!S.remiseOverrides)S.remiseOverrides={};
+  S.remiseOverrides[id]=parseFloat(val)||0;
+  render();
+}
+
 function genPdfFromPending(id){
   const o=S.pendingOrders.find(x=>x.id===id);if(!o)return;
-  const lines=(o.lines||[]).filter(l=>l.ref&&l.qty);
-  const totalP=lines.filter(l=>l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||0),0);
-  const totalF=lines.filter(l=>l.ref.startsWith("F-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||0),0);
+  const toA3=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const lines=toA3(o.lines).filter(l=>l&&l.ref&&l.qty);
+  const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const totalF=lines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
   const remiseInfo=getRemisePoignee(totalP,o.client);
+  const remiseOverride=(S.remiseOverrides||{})[id];
+  const remiseApplied=remiseOverride!==undefined?remiseOverride:remiseInfo.remise;
   var totalHT=0;
   var lineRows=lines.map(function(l,i){
     var isFacade=l.ref.startsWith("F-");
     var nb=parseFloat(l.nbPcs)||0;
     var pt=parseFloat(l.prixTarif)||0;
-    var rm=isFacade?0:remiseInfo.remise;
+    var rm=isFacade?0:remiseApplied;
     var puNet=pt*(1-rm/100);
     var tot=puNet*nb;
     totalHT+=tot;
@@ -1968,6 +2362,255 @@ function genPdfFromPending(id){
   w.document.close();
 }
 
+
+// ═══════════════════════════════════════════
+// ─── FAÇADE CONFIGURATOR ───
+// ═══════════════════════════════════════════
+function openFacadeConf(editId,ref){
+  let cfg;
+  if(editId!==null){
+    const existing=S.form.facadeLines.find(f=>f.id===editId);
+    cfg=existing?JSON.parse(JSON.stringify(existing.facadeConfig)):emptyFacadeConfig(ref||"F-500");
+  } else {
+    cfg=emptyFacadeConfig(ref||"F-500");
+  }
+  S.facadeConf={open:true,editId,cfg};
+  render();
+}
+
+function updateFacadeHeight(val){
+  if(!S.facadeConf||!S.facadeConf.cfg)return;
+  const h=parseInt(val)||0;
+  S.facadeConf.cfg.height=h||"";
+  if(h>0){
+    const cnt=calcHingeCount(h);
+    S.facadeConf.cfg.hingeCount=cnt;
+    S.facadeConf.cfg.hingePositions=calcHingePositions(cnt,h);
+  }
+  render();
+}
+function updateFacadeHingeCount(val){
+  if(!S.facadeConf)return;
+  const cnt=parseInt(val)||2;
+  const h=parseInt(S.facadeConf.cfg.height)||0;
+  S.facadeConf.cfg.hingeCount=cnt;
+  S.facadeConf.cfg.hingePositions=h>0?calcHingePositions(cnt,h):Array(cnt).fill(0).map((_,i)=>135+i*200);
+  render();
+}
+
+function saveFacadeConf(){
+  if(!S.facadeConf||!S.facadeConf.open)return;
+  const{editId,cfg}=S.facadeConf;
+  const facadeLine={
+    id:editId!==null?editId:"fac-"+Date.now(),
+    ref:cfg.model,
+    designation:buildFacadeDesignation(cfg),
+    qty:cfg.qty||1,
+    dim:cfg.height?String(cfg.height):"",
+    largeur:cfg.width?String(cfg.width):"",
+    color:cfg.color||"",
+    unit:"pcs",
+    prixTarif:"",
+    facadeConfig:JSON.parse(JSON.stringify(cfg)),
+  };
+  if(editId!==null){
+    S.form.facadeLines=S.form.facadeLines.map(f=>f.id===editId?facadeLine:f);
+  } else {
+    S.form.facadeLines=[...S.form.facadeLines,facadeLine];
+  }
+  S.facadeConf={open:false,editId:null,cfg:null};
+  render();
+}
+
+function renderFacadeConfigurator(){
+  const{lineId,cfg}=S.facadeConf;
+  const m=FACADE_MODELS[cfg.model]||{};
+  const hasHandle=m.handle==="optional";
+  const fixedHandle=m.handle==="fixed";
+  const hingePositions=cfg.hingePositions||[];
+  const desig=buildFacadeDesignation(cfg);
+
+  return`
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn btn-sm" onclick="S.facadeConf={open:false,editId:null,cfg:null};render()"><i class="ti ti-arrow-left"></i>Annuler</button>
+    <span style="font-weight:700;font-size:15px">Configurateur façade — Ligne ${lineId}</span>
+  </div>
+
+  <!-- Désignation auto -->
+  <div style="background:#17171A;color:#FFF;border-radius:var(--rl);padding:14px 18px;margin-bottom:16px;font-size:13px">
+    <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Désignation générée</div>
+    <div style="font-weight:600;font-size:14px">${esc(desig||"—")}</div>
+  </div>
+
+  <!-- Modèle -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-layout"></i>Modèle</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${Object.entries(FACADE_MODELS).map(([key,val])=>`
+      <button onclick="S.facadeConf.cfg=emptyFacadeConfig('${key}');S.facadeConf.cfg.color='${cfg.color}';S.facadeConf.cfg.qty=${cfg.qty};render()"
+        style="padding:8px 14px;border-radius:var(--r);border:2px solid ${cfg.model===key?"#17171A":"var(--border)"};
+        background:${cfg.model===key?"#17171A":"var(--surface)"};color:${cfg.model===key?"#FFF":"var(--text)"};
+        font-size:12px;font-weight:600;cursor:pointer;transition:all .15s">
+        ${val.label}
+      </button>`).join("")}
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text2);display:flex;gap:16px;flex-wrap:wrap">
+      <span><strong>Profilé :</strong> ${m.profil||"—"}</span>
+      <span><strong>Charnières :</strong> ${m.hingeType||"—"}</span>
+      <span><strong>Poignée :</strong> ${fixedHandle?"Incluse":hasHandle?"Optionnelle":"Non"}</span>
+    </div>
+  </div>
+
+  <!-- Dimensions + Couleur -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-ruler"></i>Dimensions & Couleur</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Largeur (mm) — max 600</label>
+        <input type="number" value="${cfg.width||""}" min="1" max="600" placeholder="ex: 400"
+          oninput="S.facadeConf.cfg.width=parseInt(this.value)||''"
+          onblur="render()"
+          style="font-size:16px">
+      </div>
+      <div class="form-group">
+        <label>Hauteur (mm) — max 2900</label>
+        <input type="number" value="${cfg.height||""}" min="1" max="2900" placeholder="ex: 2000"
+          oninput="S.facadeConf.cfg.height=parseInt(this.value)||''"
+          onblur="updateFacadeHeight(S.facadeConf.cfg.height)"
+          style="font-size:16px">
+      </div>
+      <div class="form-group">
+        <label>Couleur / Finition</label>
+        <select onchange="S.facadeConf.cfg.color=this.value;render()">
+          <option value="">— Choisir —</option>
+          ${["Noir","Blanc","Moon light","Champagne"].map(c=>`<option value="${c}"${cfg.color===c?" selected":""}>${c}</option>`).join("")}
+          <option value="Personnalisée"${cfg.color==="Personnalisée"?" selected":""}>Personnalisée…</option>
+        </select>
+        ${cfg.color==="Personnalisée"?`<input type="text" placeholder="Saisir la couleur…" value="${esc(cfg.colorCustom||"")}"
+          oninput="S.facadeConf.cfg.colorCustom=this.value;render()" style="margin-top:6px">`:""}
+      </div>
+      <div class="form-group">
+        <label>Quantité</label>
+        <input type="number" value="${cfg.qty||1}" min="1"
+          oninput="S.facadeConf.cfg.qty=parseInt(this.value)||1" style="font-size:16px">
+      </div>
+    </div>
+  </div>
+
+  <!-- Poignée (Skin Mini/Maxi seulement) -->
+  ${hasHandle?`<div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-hand-grab"></i>Poignée</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button onclick="S.facadeConf.cfg.handle.has=false;render()"
+        style="padding:8px 16px;border-radius:var(--r);border:2px solid ${!cfg.handle?.has?"#17171A":"var(--border)"};background:${!cfg.handle?.has?"#17171A":"var(--surface)"};color:${!cfg.handle?.has?"#FFF":"var(--text)"};font-size:13px;font-weight:600;cursor:pointer">
+        Sans poignée
+      </button>
+      <button onclick="S.facadeConf.cfg.handle.has=true;render()"
+        style="padding:8px 16px;border-radius:var(--r);border:2px solid ${cfg.handle?.has?"#17171A":"var(--border)"};background:${cfg.handle?.has?"#17171A":"var(--surface)"};color:${cfg.handle?.has?"#FFF":"var(--text)"};font-size:13px;font-weight:600;cursor:pointer">
+        Avec poignée
+      </button>
+    </div>
+    ${cfg.handle?.has?`
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Type de poignée</label>
+        <div style="display:flex;gap:8px">
+          ${["U","J"].map(t=>`<button onclick="S.facadeConf.cfg.handle.type='${t}';render()"
+            style="flex:1;padding:10px;border-radius:var(--r);border:2px solid ${cfg.handle?.type===t?"#17171A":"var(--border)"};
+            background:${cfg.handle?.type===t?"#17171A":"var(--surface)"};color:${cfg.handle?.type===t?"#FFF":"var(--text)"};
+            font-size:15px;font-weight:700;cursor:pointer">
+            Poignée en ${t}
+          </button>`).join("")}
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Orientation</label>
+        <div style="display:flex;gap:8px">
+          ${["Horizontal","Vertical"].map(o=>`<button onclick="S.facadeConf.cfg.handle.orientation='${o}';render()"
+            style="flex:1;padding:10px;border-radius:var(--r);border:2px solid ${cfg.handle?.orientation===o?"#17171A":"var(--border)"};
+            background:${cfg.handle?.orientation===o?"#17171A":"var(--surface)"};color:${cfg.handle?.orientation===o?"#FFF":"var(--text)"};
+            font-size:13px;font-weight:600;cursor:pointer">
+            ${o}
+          </button>`).join("")}
+        </div>
+      </div>
+    </div>`:""}
+  </div>`:""}
+
+  ${fixedHandle?`<div class="card" style="margin-bottom:12px;background:var(--surface2)">
+    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)">
+      <i class="ti ti-hand-grab" style="font-size:18px"></i>
+      <span>Ce modèle inclut une <strong>poignée fixe</strong> intégrée.</span>
+    </div>
+  </div>`:""}
+
+  <!-- Charnières -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-tool"></i>Charnières — ${m.hingeType||"—"}</div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px;font-size:13px;padding:8px 12px;background:${cfg.hingesSupplied?"var(--teal-bg)":"var(--surface2)"};border-radius:var(--r);border:1px solid ${cfg.hingesSupplied?"var(--teal)":"var(--border)"}">
+      <input type="checkbox" ${cfg.hingesSupplied?"checked":""} onchange="S.facadeConf.cfg.hingesSupplied=this.checked;render()" style="width:16px;height:16px;cursor:pointer">
+      <span style="font-weight:600;color:${cfg.hingesSupplied?"var(--teal)":"var(--text2)"}">Charnières fournies</span>
+      ${cfg.hingesSupplied?`<span style="font-size:11px;color:var(--teal);margin-left:4px">✓ Incluses dans la commande</span>`:`<span style="font-size:11px;color:var(--text3);margin-left:4px">Non fournies / à charge client</span>`}
+    </label>
+    <div class="form-grid" style="margin-bottom:12px">
+      <div class="form-group">
+        <label>Nombre de charnières</label>
+        <input type="number" value="${cfg.hingeCount||2}" min="1" max="8"
+          oninput="updateFacadeHingeCount(this.value)" style="font-size:16px">
+        ${cfg.height?`<div style="font-size:11px;color:var(--text3);margin-top:4px">Auto pour ${cfg.height}mm : ${calcHingeCount(parseInt(cfg.height))} charnières</div>`:""}
+      </div>
+    </div>
+    ${hingePositions.length>0?`
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">
+      Positions depuis le bas (mm) — modifiables
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
+      ${hingePositions.map((pos,i)=>`
+      <div class="form-group">
+        <label>Charnière ${i+1}</label>
+        <input type="number" value="${pos}" min="0" max="${cfg.height||2900}"
+          oninput="S.facadeConf.cfg.hingePositions[${i}]=parseInt(this.value)||0" style="font-size:15px">
+      </div>`).join("")}
+    </div>`:"<div style='font-size:12px;color:var(--text3);font-style:italic'>Saisissez la hauteur pour calculer les positions.</div>"}
+  </div>
+
+  <!-- Verre -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-rectangle"></i>Verre</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <button onclick="S.facadeConf.cfg.glass.has=false;render()"
+        style="padding:8px 16px;border-radius:var(--r);border:2px solid ${!cfg.glass?.has?"#17171A":"var(--border)"};background:${!cfg.glass?.has?"#17171A":"var(--surface)"};color:${!cfg.glass?.has?"#FFF":"var(--text)"};font-size:13px;font-weight:600;cursor:pointer">
+        Sans verre
+      </button>
+      <button onclick="S.facadeConf.cfg.glass.has=true;render()"
+        style="padding:8px 16px;border-radius:var(--r);border:2px solid ${cfg.glass?.has?"#17171A":"var(--border)"};background:${cfg.glass?.has?"#17171A":"var(--surface)"};color:${cfg.glass?.has?"#FFF":"var(--text)"};font-size:13px;font-weight:600;cursor:pointer">
+        Avec verre
+      </button>
+    </div>
+    ${cfg.glass?.has?`
+    <div class="form-group">
+      <label>Type de verre</label>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">
+        ${GLASS_TYPES.map(t=>`<button onclick="S.facadeConf.cfg.glass.type='${t}';render()"
+          style="padding:10px;border-radius:var(--r);border:2px solid ${cfg.glass?.type===t?"#17171A":"var(--border)"};
+          background:${cfg.glass?.type===t?"#17171A":"var(--surface)"};color:${cfg.glass?.type===t?"#FFF":"var(--text)"};
+          font-size:12px;font-weight:600;cursor:pointer">${t}</button>`).join("")}
+      </div>
+    </div>`:""}
+  </div>
+
+  <!-- Notes -->
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title"><i class="ti ti-notes"></i>Notes / Observations</div>
+    <textarea rows="2" placeholder="Remarques particulières…" style="width:100%;font-size:13px"
+      oninput="S.facadeConf.cfg.notes=this.value">${esc(cfg.notes||"")}</textarea>
+  </div>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+    <button class="btn" onclick="S.facadeConf={open:false,editId:null,cfg:null};render()"><i class="ti ti-x"></i>Annuler</button>
+    <button class="btn btn-primary" onclick="saveFacadeConf()"><i class="ti ti-check"></i>Valider la configuration</button>
+  </div>`;
+}
 // ─── INIT ───
 document.getElementById("topbar-date").textContent=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
 document.querySelectorAll(".nav-item[data-tab],.bn-item[data-tab]").forEach(b=>b.addEventListener("click",()=>setTab(b.dataset.tab,b.dataset.sub||null)));
