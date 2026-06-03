@@ -502,6 +502,13 @@ async function loadAll(){
       const v=snap.val()||[];
       if(JSON.stringify(v)!==JSON.stringify(S.bons)){S.bons=v;if(S.tab==="bons")render();}
     });
+    // Listener pending_orders — demandes web clients
+    db.ref("pending_orders").on("value",snap=>{
+      const val=snap.val()||{};
+      S.pendingOrders=Object.entries(val).map(([id,o])=>({...o,id}));
+      updateBadges();
+      if(S.tab==="pending")render();
+    });
   } else {
     S.orders=ls_get(K_ORDERS)||[];
     S.plan=ls_get(K_PLAN)||{};
