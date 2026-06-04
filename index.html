@@ -260,6 +260,7 @@ textarea{resize:vertical}
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-sm no-print" id="btn-new-order" onclick="setTab('new_order')"><i class="ti ti-plus"></i><span class="hide-mobile">Commande</span></button>
+      <button class="btn btn-sm no-print" title="Configurer Slack" onclick="promptSlackWebhook()" style="padding:6px 8px"><i class="ti ti-brand-slack"></i></button>
       <div id="conn-indicator" title="Firebase" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;margin-left:4px" aria-hidden="true"></div>
       </div>
     </div>
@@ -570,6 +571,9 @@ async function loadAll(){
       // Load time standards
       const stdSnap=await fbRead("standards").catch(()=>null);
       S.standards=stdSnap||{};
+      // Load Slack webhook from Firebase config
+      const cfgSnap=await fbRead("config/slackWebhook").catch(()=>null);
+      if(cfgSnap)SLACK_WEBHOOK=cfgSnap;
     }catch(e){
       console.warn("Firebase load error:",e);
       S.orders=ls_get(K_ORDERS)||[];
@@ -2969,8 +2973,9 @@ function renderFacadeConfigurator(){
 }
 
 // ── SLACK NOTIFICATION ──────────────────────────────────────────────────────
-const SLACK_WEBHOOK="https://hooks.slack.com/services/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";
+let SLACK_WEBHOOK="";
 function sendSlackNotif(order,source){
+  if(!SLACK_WEBHOOK){console.warn("Slack webhook not configured");return;}
   const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
   const lines=toA(order.lines||[]).filter(l=>l&&l.ref&&l.qty);
   const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
@@ -3002,7 +3007,20 @@ function sendSlackNotif(order,source){
     ]
   };
   fetch(SLACK_WEBHOOK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(msg)})
+    .then(r=>{if(!r.ok)console.warn("Slack HTTP error:",r.status);})
     .catch(e=>console.warn("Slack notification failed:",e));
+}
+
+// Set webhook URL (called after user provides it)
+function promptSlackWebhook(){
+  const current=SLACK_WEBHOOK?"Webhook actuel configuré.":"⚠️ Aucun webhook configuré.";
+  const url=prompt(current+"\n\nCollez la nouvelle URL webhook Slack :\n(https://hooks.slack.com/services/...)","");
+  if(url&&url.startsWith("https://hooks.slack.com/"))setSlackWebhook(url);
+  else if(url)alert("URL invalide. Elle doit commencer par https://hooks.slack.com/");
+}
+  SLACK_WEBHOOK=url.trim();
+  if(db)db.ref("config/slackWebhook").set(SLACK_WEBHOOK);
+  alert("✅ Webhook Slack enregistré.");
 }
 // ────────────────────────────────────────────────────────────────────────────
 // ─── INIT ───

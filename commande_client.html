@@ -606,6 +606,7 @@ function submitCommande(){
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Envoi en cours…';
   const order={id:"WEB-"+Date.now(),source:"WEB_CLIENT",date:todayStr(),createdAt:new Date().toISOString(),client,contact,mobile,lines,status:"EN_ATTENTE"};
   db.ref("pending_orders/"+order.id).set(order).then(()=>{
+    sendSlackNotif(order);
     document.getElementById("form-area").style.display="none";
     document.getElementById("success-area").style.display="block";
   }).catch(err=>{
@@ -626,7 +627,36 @@ function resetForm(){
   btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Envoyer ma demande de commande';
 }
 
+
+let SLACK_WEBHOOK="";
+function sendSlackNotif(order){
+  const lines=(order.lines||[]);
+  const totalP=lines.filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||(parseFloat(l.qty)||0)*25),0);
+  const totalF=lines.filter(l=>l.ref&&!l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||parseFloat(l.qty)||0),0);
+  const articlesSummary=[];
+  if(totalP>0)articlesSummary.push("*"+totalP.toLocaleString("fr-FR")+" pcs* poignées");
+  if(totalF>0)articlesSummary.push("*"+totalF.toLocaleString("fr-FR")+" pcs* façades");
+  const detailLines=lines.slice(0,5).map(l=>"• "+(l.designation||l.ref)+" — "+(l.nbPcs||l.qty)+" pcs").join("\n")+(lines.length>5?"\n• … et "+(lines.length-5)+" autre(s)":"");
+  const msg={blocks:[
+    {type:"header",text:{type:"plain_text",text:"🌐 Nouvelle demande web — "+order.client,emoji:true}},
+    {type:"section",fields:[
+      {type:"mrkdwn",text:"*Client :*\n"+order.client},
+      {type:"mrkdwn",text:"*Contact :*\n"+(order.contact||"—")},
+      {type:"mrkdwn",text:"*Mobile :*\n"+(order.mobile||"—")},
+      {type:"mrkdwn",text:"*Source :*\nFormulaire web"},
+    ]},
+    ...(articlesSummary.length?[{type:"section",text:{type:"mrkdwn",text:"📦 "+articlesSummary.join(" — ")}}]:[]),
+    ...(detailLines?[{type:"section",text:{type:"mrkdwn",text:detailLines}}]:[]),
+    {type:"divider"},
+    {type:"context",elements:[{type:"mrkdwn",text:"UND Atelier — "+new Date().toLocaleString("fr-FR")}]}
+  ]};
+  fetch(SLACK_WEBHOOK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(msg)})
+    .catch(e=>console.warn("Slack error:",e));
+}
 // ── INIT ──
+// Load Slack webhook from Firebase config
+db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
+
 renderPoigDesktop();
 renderPoigMobile();
 renderFacList();
