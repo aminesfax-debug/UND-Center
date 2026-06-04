@@ -478,7 +478,7 @@ const GAMMES={
   }
 };
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -567,6 +567,9 @@ async function loadAll(){
       S.bons=toArr(bons);
       S.ofs=toArr(ofs);
       S.pendingOrders=pending?Object.values(pending).map(o=>({...o,lines:toArr(o.lines)})):[];
+      // Load time standards
+      const stdSnap=await fbRead("standards").catch(()=>null);
+      S.standards=stdSnap||{};
     }catch(e){
       console.warn("Firebase load error:",e);
       S.orders=ls_get(K_ORDERS)||[];
@@ -1463,6 +1466,7 @@ function genPdfOrder(oid){
 // ═══════════════════════════════════════════
 function renderLaunch(){
   if(S.ofLaunchMode)return renderOFPanel();
+  if(S.standardsForm)return renderStandardsForm();
   const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
 
   // Build groups by ref from EN_ATTENTE orders
@@ -1647,9 +1651,172 @@ function lancerOFRef(ref){
   S.orders=S.orders.map(o=>sel.has(o.id)?{...o,status:"LANCÉ"}:o);
   saveOrders();
   if(S.ofSelByRef)delete S.ofSelByRef[ref];
-  alert("✅ "+pfId+" lancé — "+totalPcs.toLocaleString("fr-FR")+" pcs de "+ref+(gamme?" — "+gamme:""));
+  // Open standards form
+  S.standardsForm={pfId,ref,postes:postes||[],totalPcs,gamme};
+  S.openLaunchRef=null;
   render();
 }
+
+// ═══════════════════════════════════════════
+// ─── TEMPS STANDARDS & PROPOSITION PLANNING ──
+// ═══════════════════════════════════════════
+
+function renderStandardsForm(){
+  const{pfId,ref,postes,totalPcs,gamme}=S.standardsForm;
+  const existingStd=S.standards[ref]||{};
+  const isNew=Object.keys(existingStd).length===0;
+
+  return`
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn btn-sm" onclick="S.standardsForm=null;render()"><i class="ti ti-arrow-left"></i>Retour</button>
+    <span style="font-weight:700;font-size:15px">⏱ Temps standards — ${ref} (${pfId})</span>
+  </div>
+
+  <div style="background:${isNew?"#FFF3CD":"var(--teal-bg)"};border:1px solid ${isNew?"#FFC107":"var(--teal)"};border-radius:var(--rl);padding:12px 16px;margin-bottom:16px;font-size:13px;color:${isNew?"#856404":"var(--teal)"}">
+    ${isNew?
+      "⚠️ Premiers temps standards pour "+ref+" — à saisir pour générer le planning.":
+      "✓ Temps standards connus pour "+ref+" — vérifiez et ajustez si nécessaire."}
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title"><i class="ti ti-clock"></i>Temps unitaire par poste</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px">
+      OF : <strong>${pfId}</strong> — Gamme : <strong>${gamme||"—"}</strong> — <strong>${totalPcs.toLocaleString("fr-FR")} pcs</strong>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px" id="std-fields">
+      ${postes.map((poste,i)=>{
+        const existing=existingStd[poste]||"";
+        const dureeMin=existing?(parseFloat(existing)*totalPcs).toFixed(0):"—";
+        const dureeH=existing?(parseFloat(existing)*totalPcs/60).toFixed(1):"—";
+        return`<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+          <div>
+            <div style="font-weight:600;font-size:13px">${i+1}. ${poste}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px" id="std-dur-${i}">
+              ${existing?`Durée estimée : <strong>${dureeMin} min (${dureeH}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`:"Saisir le temps pour calculer la durée"}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" id="std-${i}" value="${existing}" min="0" step="0.01" placeholder="0.00"
+              oninput="updateStdDur(${i},this.value,${totalPcs})"
+              style="width:90px;font-size:15px;text-align:right;padding:7px 10px">
+            <span style="font-size:12px;color:var(--text2);white-space:nowrap">min/pcs</span>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title"><i class="ti ti-calendar-plus"></i>Proposer un planning</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
+      Choisissez la date de début pour générer automatiquement la planification sur la grille.
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Date de début</label>
+        <input type="date" id="std-start-date" value="${todayStr()}" min="${todayStr()}">
+      </div>
+      <div class="form-group">
+        <label>Heures/jour disponibles sur ce poste</label>
+        <input type="number" id="std-hpj" value="8" min="1" max="24" step="0.5">
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+    <button class="btn" onclick="saveStandards(false)">
+      <i class="ti ti-device-floppy"></i>Enregistrer sans planifier
+    </button>
+    <button class="btn btn-primary" onclick="saveStandards(true)">
+      <i class="ti ti-calendar-plus"></i>Enregistrer et proposer un planning
+    </button>
+  </div>`;
+}
+
+function updateStdDur(i,val,totalPcs){
+  const el=document.getElementById("std-dur-"+i);
+  if(!el)return;
+  const v=parseFloat(val)||0;
+  if(v>0){
+    const min=(v*totalPcs).toFixed(0);
+    const h=(v*totalPcs/60).toFixed(1);
+    el.innerHTML=`Durée estimée : <strong>${min} min (${h}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`;
+  } else {
+    el.textContent="Saisir le temps pour calculer la durée";
+  }
+}
+
+function saveStandards(propose){
+  const{pfId,ref,postes,totalPcs}=S.standardsForm;
+  const stdData={};
+  postes.forEach((poste,i)=>{
+    const el=document.getElementById("std-"+i);
+    const v=parseFloat(el?el.value:0)||0;
+    if(v>0)stdData[poste]=v;
+  });
+  // Save to Firebase
+  S.standards[ref]=stdData;
+  if(db)db.ref("standards/"+ref).set(stdData);
+
+  if(propose){
+    const startDate=document.getElementById("std-start-date")?.value||todayStr();
+    const hpj=parseFloat(document.getElementById("std-hpj")?.value)||8;
+    proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj);
+  } else {
+    S.standardsForm=null;
+    alert("✅ Temps standards enregistrés pour "+ref);
+    render();
+  }
+}
+
+function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
+  // Generate planning slots for each poste sequentially
+  const slots=[];
+  let currentDate=new Date(startDate);
+  const minPerDay=hpj*60;
+
+  postes.forEach(poste=>{
+    const tUnit=stdData[poste]||0;
+    if(!tUnit){slots.push({poste,pfId,ref,start:null,note:"Temps non saisi"});return;}
+    const totalMin=tUnit*totalPcs;
+    const nbDays=Math.ceil(totalMin/minPerDay);
+    const startStr=currentDate.toISOString().split("T")[0];
+    // Advance by nbDays (skip weekends)
+    let daysAdded=0;
+    while(daysAdded<nbDays){
+      const dow=currentDate.getDay();
+      if(dow!==0&&dow!==6)daysAdded++;
+      if(daysAdded<nbDays)currentDate.setDate(currentDate.getDate()+1);
+    }
+    const endStr=currentDate.toISOString().split("T")[0];
+    slots.push({poste,pfId,ref,start:startStr,end:endStr,totalMin:totalMin.toFixed(0),nbDays,tUnit});
+    // Next poste starts next working day
+    do{currentDate.setDate(currentDate.getDate()+1);}while(currentDate.getDay()===0||currentDate.getDay()===6);
+  });
+
+  // Save proposal to OF
+  const pf=S.ofs.find(o=>o.id===pfId);
+  if(pf){
+    pf.planningProposal=slots;
+    if(db)db.ref("ofs/"+pfId+"/planningProposal").set(slots);
+  }
+
+  S.standardsForm=null;
+  S.openOf=pfId;
+  setTab("launch");
+  // Show planning summary
+  showPlanningProposal(pfId,slots);
+}
+
+function showPlanningProposal(pfId,slots){
+  const lines=slots.map(s=>s.start?
+    `• ${s.poste} : du ${s.start} au ${s.end} (${s.nbDays}j — ${s.totalMin} min)`:
+    `• ${s.poste} : ${s.note||"non planifié"}`
+  ).join("\n");
+  alert("📅 Planning proposé pour "+pfId+":\n\n"+lines+"\n\nVous pouvez ajuster les dates dans le menu Planning.");
+  render();
+}
+
 function renderOFPanel(){
   const groups=Object.values(S.ofLaunchGroups);
   let h=`
