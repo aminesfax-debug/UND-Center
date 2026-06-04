@@ -22,7 +22,6 @@
   --blue:#185FA5;--blue-bg:#E6F1FB;
   --red:#A32D2D;--red-bg:#FCEBEB;
   --amber:#7A470A;--amber-bg:#FAEEDA;
-  --green:#3B6D11;--green-bg:#EAF3DE;
   --purple:#534AB7;--purple-bg:#EEEDFE;
   --gray:#5F5E5A;--gray-bg:#F1EFE8;
   --r:8px;--rl:12px;--rxl:16px;
@@ -479,7 +478,7 @@ const GAMMES={
   }
 };
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null}};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -629,7 +628,12 @@ async function loadAll(){
 // ─── HELPERS ───
 function isoDate(d){return d.toISOString().split("T")[0];}
 function todayStr(){return isoDate(new Date());}
-function daysLeft(dl){const t=new Date();t.setHours(0,0,0,0);return Math.round((new Date(dl)-t)/86400000);}
+function daysLeft(dl){
+  if(!dl)return null;
+  if(isNaN(Date.parse(dl)))return null; // text deadline like "Immédiat", "3 jours"
+  const t=new Date();t.setHours(0,0,0,0);
+  return Math.round((new Date(dl)-t)/86400000);
+}
 function getWeekDays(off){
   const n=new Date(),dow=n.getDay();
   const mon=new Date(n);mon.setDate(n.getDate()-(dow===0?6:dow-1)+off*7);mon.setHours(0,0,0,0);
@@ -642,11 +646,17 @@ function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").
 function pill(t,c){return`<span class="pill ${c}">${t}</span>`;}
 function statusPill(s){const c=STATUSES[s]||STATUSES["EN_ATTENTE"];return pill(c.label,c.pill);}
 function prioPill(p){const c=PRIOS[p]||PRIOS["NORMAL"];return pill(p,c.pill);}
-function nextOF(){
-  if(!S.orders.length)return"OF-001";
-  const mx=Math.max(...S.orders.map(o=>parseInt(o.id.replace("OF-",""))||0));
-  return"OF-"+String(mx+1).padStart(3,"0");
+function nextCde(){
+  const now=new Date();
+  const mm=String(now.getMonth()+1).padStart(2,"0");
+  const prefix="Cde"+mm;
+  const monthOrders=S.orders.filter(o=>o.id&&o.id.startsWith(prefix));
+  if(!monthOrders.length)return prefix+"001";
+  const mx=Math.max(...monthOrders.map(o=>parseInt(o.id.replace(prefix,""))||0));
+  return prefix+String(mx+1).padStart(3,"0");
 }
+// Keep nextOF as alias for legacy OFs
+function nextOF(){return nextCde();}
 function nextBon(){
   if(!S.bons.length)return"BE-001";
   const mx=Math.max(...S.bons.map(b=>parseInt(b.id.replace("BE-",""))||0));
@@ -700,12 +710,38 @@ function lateOrders(){
   const t=new Date();t.setHours(0,0,0,0);
   return S.orders.filter(o=>!["TERMINÉ","ANNULÉ","APURÉ"].includes(o.status)&&new Date(o.deadline)<t);
 }
+function calcOrderCA(o){
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const lines=toA(o.lines).filter(l=>l&&l.ref&&l.qty);
+  if(!lines.length)return 0;
+  const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const remiseInfo=getRemisePoignee(totalP,o.client);
+  let ca=lines.reduce((s,l)=>{
+    const nb=nbPcsFromLine(l);
+    const pt=parseFloat(l.prixTarif)||0;
+    const rm=isFacadeRef(l.ref)?parseFloat(l.remise)||0:remiseInfo.remise;
+    return s+pt*(1-rm/100)*nb;
+  },0);
+  if(remiseInfo.bonus>0)ca*=(1-remiseInfo.bonus/100);
+  return ca;
+}
+
 function stats(){
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const thisMonth=new Date().toISOString().slice(0,7);
+  const filterMonth=S.dashFilter||"mois";
+  const filteredOrders=S.orders.filter(o=>o.status!=="ANNULÉ"&&(filterMonth==="tout"||( o.date&&o.date.startsWith(thisMonth))));
+  const totalPoigneesMois=filteredOrders.reduce((s,o)=>s+toA(o.lines).filter(l=>l&&l.ref&&l.ref.startsWith("P-")).reduce((s2,l)=>s2+nbPcsFromLine(l),0),0);
+  const totalFacadesMois=filteredOrders.reduce((s,o)=>s+toA(o.lines).filter(l=>l&&l.ref&&!l.ref.startsWith("P-")).reduce((s2,l)=>s2+nbPcsFromLine(l),0),0);
+  const caMois=filteredOrders.reduce((s,o)=>s+calcOrderCA(o),0);
   return{
     total:S.orders.length,
     enCours:S.orders.filter(o=>["LANCÉ","EN_COURS"].includes(o.status)).length,
     attente:S.orders.filter(o=>o.status==="EN_ATTENTE").length,
     retard:lateOrders().length,
+    totalPoigneesMois,totalFacadesMois,caMois,
+    moisLabel:filterMonth==="tout"?"Tout":new Date().toLocaleDateString("fr-FR",{month:"long",year:"numeric"}),
+    filterMonth,
   };
 }
 function refsOpts(cur){return`<option value="">—</option>`+REFS.map(r=>`<option value="${r}"${cur===r?" selected":""}>${r}</option>`).join("");}
@@ -713,6 +749,7 @@ function statusOpts(cur){return Object.entries(STATUSES).map(([k,v])=>`<option v
 function lineTotal(l){return(parseFloat(l.qty)||0)*(parseFloat(l.unitPrice)||0);}
 function orderTotal(lines){return(lines||[]).reduce((s,l)=>s+lineTotal(l),0);}
 function dlLabel(dl){
+  if(dl===null||dl===undefined||isNaN(dl))return"";
   if(dl<0)return`<span style="color:var(--red);font-weight:700">−${Math.abs(dl)}j</span>`;
   if(dl===0)return`<span style="color:var(--amber);font-weight:700">Auj.</span>`;
   if(dl<=3)return`<span style="color:var(--amber)">J−${dl}</span>`;
@@ -783,6 +820,7 @@ function acceptPendingOrder(id){
   updateBadges();
   S.reviewId=null;
   if(S.remiseOverrides)delete S.remiseOverrides[id];
+  sendSlackNotif(newOrder,"WEB");
   alert("✅ Commande "+newOrder.id+" intégrée — remise "+remiseApplied+"% appliquée."+(remiseInfo.bonus>0?" + "+remiseInfo.bonus+"% client privilégié.":""));
   setTab("orders","clients");
 }
@@ -811,6 +849,37 @@ function renderDashboard(){
       <div class="stat-label">${c.l}</div>
       <div class="stat-val" style="color:${c.c}">${c.v}</div>
     </div>`).join("")}
+  </div>
+
+  <!-- Compteurs mensuels -->
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <span style="font-size:13px;font-weight:600">${s.moisLabel}</span>
+    <div style="display:flex;gap:6px">
+      ${["mois","tout"].map(f=>`<button onclick="S.dashFilter='${f}';render()" style="padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:${s.filterMonth===f?"#17171A":"transparent"};color:${s.filterMonth===f?"#FFF":"var(--text2)"};font-size:12px;font-weight:500;cursor:pointer">${f==="mois"?"Ce mois":"Tout"}</button>`).join("")}
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+    <div class="card" style="margin-bottom:0;border-left:4px solid var(--teal)">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;align-items:center;gap:5px">
+        <i class="ti ti-hand-grab" style="font-size:13px"></i>Poignées
+      </div>
+      <div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--teal)">${s.totalPoigneesMois.toLocaleString("fr-FR")}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">pièces</div>
+    </div>
+    <div class="card" style="margin-bottom:0;border-left:4px solid var(--purple)">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;align-items:center;gap:5px">
+        <i class="ti ti-layout-columns" style="font-size:13px"></i>Façades
+      </div>
+      <div style="font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--purple)">${s.totalFacadesMois.toLocaleString("fr-FR")}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">pièces</div>
+    </div>
+    <div class="card" style="margin-bottom:0;border-left:4px solid var(--amber)">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;align-items:center;gap:5px">
+        <i class="ti ti-cash" style="font-size:13px"></i>CA HT net
+      </div>
+      <div style="font-size:${s.caMois>0?"22px":"28px"};font-weight:700;letter-spacing:-1px;color:var(--amber)">${s.caMois>0?s.caMois.toLocaleString("fr-FR",{minimumFractionDigits:3,maximumFractionDigits:3}):"—"}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">TND</div>
+    </div>
   </div>`;
 
   if(late.length){
@@ -835,10 +904,10 @@ function renderDashboard(){
   if(!recent.length){
     h+=`<div class="empty"><i class="ti ti-inbox"></i><p>Aucune commande.<br><button class="btn btn-primary" style="margin-top:10px" onclick="setTab('new_order')"><i class="ti ti-plus"></i>Créer la première</button></p></div>`;
   }else{
-    h+=`<div class="table-scroll"><table><thead><tr><th>N° OF</th><th>Client</th><th class="hide-mobile">Délai</th><th>Échéance</th><th>Statut</th></tr></thead><tbody>
+    h+=`<div class="table-scroll"><table><thead><tr><th>N° Cde</th><th>Client</th><th class="hide-mobile">Délai</th><th>Échéance</th><th>Statut</th></tr></thead><tbody>
       ${recent.map(o=>`<tr>
-        <td style="font-weight:700">${o.id}</td>
-        <td>${esc(o.client)}</td>
+        <td style="font-weight:700;font-size:12px;color:var(--text2)">${o.id}</td>
+        <td style="font-weight:500">${esc(o.client)}</td>
         <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${o.deadline}</td>
         <td>${dlLabel(daysLeft(o.deadline))}</td>
         <td>${statusPill(o.status)}</td>
@@ -1265,6 +1334,7 @@ function renderClients(){
     return`<div class="of-card" style="margin-bottom:8px;${isLate?"border-color:#F09595":""}">
       <div class="of-card-header" onclick="S.expandedOrder=S.expandedOrder==='${o.id}'?null:'${o.id}';render()" style="padding:12px 14px">
         <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
+          <span style="font-weight:700;font-size:13px;color:var(--text2);min-width:70px">${o.id}</span>
           <span style="flex:1;font-size:13px;font-weight:600">${esc(o.client)}</span>
           <span class="hide-mobile" style="font-size:12px;color:var(--text2)">${esc(o.rep||"—")}</span>
           ${dlLabel(daysLeft(o.deadline))}
@@ -1281,6 +1351,7 @@ function renderClients(){
       </div>
       ${isOpen?`<div style="padding:0 14px 14px;border-top:1px solid var(--border);background:var(--surface2)">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:12px 0;font-size:12px;margin-bottom:10px">
+          <div><span style="color:var(--text2)">N° Cde :</span> <strong>${o.id}</strong></div>
           <div><span style="color:var(--text2)">Client :</span> <strong>${esc(o.client)}</strong></div>
           <div><span style="color:var(--text2)">Délai :</span> <strong>${esc(o.deadline||"—")}</strong></div>
           <div><span style="color:var(--text2)">Représentant :</span> <strong>${esc(o.rep||"—")}</strong></div>
@@ -1391,77 +1462,194 @@ function genPdfOrder(oid){
 // ─── LANCEMENT OF ───
 // ═══════════════════════════════════════════
 function renderLaunch(){
-  // If in launch mode, show the OF creation panel
-  if(S.ofLaunchMode){return renderOFPanel();}
+  if(S.ofLaunchMode)return renderOFPanel();
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
 
-  // Otherwise show list of created PFs
+  // Build groups by ref from EN_ATTENTE orders
+  const groups={};
+  S.orders.filter(o=>o.status==="EN_ATTENTE").forEach(o=>{
+    toA(o.lines).filter(l=>l&&l.ref&&l.qty).forEach(l=>{
+      const ref=l.ref;
+      if(!groups[ref])groups[ref]={ref,orders:[],totalPcs:0,breakdown:{}};
+      const nb=nbPcsFromLine(l);
+      let oEntry=groups[ref].orders.find(x=>x.ofId===o.id);
+      if(!oEntry){oEntry={ofId:o.id,client:o.client,deadline:o.deadline,date:o.date,lines:[],totalPcs:0};groups[ref].orders.push(oEntry);}
+      oEntry.lines.push(l);oEntry.totalPcs+=nb;groups[ref].totalPcs+=nb;
+      const dim=l.dim?(isFacadeRef(ref)?l.dim+"mm":l.dim+"cm"):"";
+      const color=l.color==="Personnalisée"?(l.colorCustom||"Perso"):l.color||"";
+      const bkey=[dim,color].filter(Boolean).join(" ");
+      groups[ref].breakdown[bkey]=(groups[ref].breakdown[bkey]||0)+nb;
+    });
+  });
+  const gArr=Object.values(groups).sort((a,b)=>b.totalPcs-a.totalPcs);
+  if(!S.ofSelByRef)S.ofSelByRef={};
+  gArr.forEach(g=>{if(!S.ofSelByRef[g.ref])S.ofSelByRef[g.ref]=new Set(g.orders.map(o=>o.ofId));});
+
+  const OF_STATUS={"LANCÉ":{label:"Lancé",pill:"st-launched"},"EN_COURS":{label:"En cours",pill:"st-run"},"TERMINÉ":{label:"Terminé",pill:"st-done"},"ANNULÉ":{label:"Annulé",pill:"st-cancel"}};
   const sorted=[...S.ofs].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-  const OF_STATUS={
-    "LANCÉ":{label:"Lancé",pill:"st-launched"},
-    "EN_COURS":{label:"En cours",pill:"st-run"},
-    "TERMINÉ":{label:"Terminé",pill:"st-done"},
-    "ANNULÉ":{label:"Annulé",pill:"st-cancel"},
-  };
-  let h=`<p style="font-size:12px;color:var(--text2);margin-bottom:14px">
-    Les Ordres de Fabrication sont créés depuis <strong>Commandes → Articles commandés</strong> en sélectionnant des articles et en cliquant <em>Lancer en OF</em>.
-  </p>`;
-  if(!sorted.length)return h+`<div class="card"><div class="empty"><i class="ti ti-rocket"></i><p>Aucun OF créé pour l'instant.</p></div></div>`;
-  h+=sorted.map(pf=>{
-    const isOpen=S.openOf===pf.id;
-    return`<div class="of-card">
-      <div class="of-card-header" onclick="S.openOf=S.openOf==='${pf.id}'?null:'${pf.id}';render()">
-        <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
-          <span style="font-weight:700;font-size:15px">${pf.id}</span>
-          <span style="font-size:12px;color:var(--text2)">${pf.date}</span>
-          <span style="font-size:12px;color:var(--text2)">${pf.groups.length} réf. — ${pf.groups.reduce((s,g)=>s+g.totalPcs,0).toLocaleString("fr-FR")} pcs</span>
-          ${pill(OF_STATUS[pf.status]?.label||pf.status, OF_STATUS[pf.status]?.pill||"st-wait")}
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <select onclick="event.stopPropagation()" onchange="updateOFStatus('${pf.id}',this.value)" style="font-size:11px;padding:3px 5px;width:auto">
-            ${Object.entries(OF_STATUS).map(([k,v])=>`<option value="${k}"${pf.status===k?" selected":""}>${v.label}</option>`).join("")}
-          </select>
+  if(!gArr.length&&!sorted.length)return`<div class="card"><div class="empty"><i class="ti ti-rocket"></i><p>Aucune commande en attente de lancement.</p></div></div>`;
+
+  let h="";
+
+  // ── À LANCER ──
+  if(gArr.length){
+    h+=`<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">À lancer</div>`;
+    h+=gArr.map(g=>{
+      const sel=S.ofSelByRef[g.ref]||new Set();
+      const allSelected=g.orders.length>0&&g.orders.every(o=>sel.has(o.ofId));
+      const selPcs=g.orders.filter(o=>sel.has(o.ofId)).reduce((s,o)=>s+o.totalPcs,0);
+      const hasGamme=GAMMES&&GAMMES[g.ref];
+      const gamme=(S.ofGammeChoices&&S.ofGammeChoices[g.ref])||Object.keys((GAMMES&&GAMMES[g.ref])||{})[0]||"";
+      const isOpen=S.openLaunchRef===g.ref;
+      return`<div class="of-card" style="margin-bottom:12px">
+        <div style="padding:14px 16px;border-bottom:${isOpen?"1":"0"}px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap;cursor:pointer" onclick="S.openLaunchRef=S.openLaunchRef==='${g.ref}'?null:'${g.ref}';render()">
+          <span style="font-weight:700;font-size:16px">${g.ref}</span>
+          <span style="background:var(--teal-bg);color:var(--teal);padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${g.totalPcs.toLocaleString("fr-FR")} pcs</span>
+          <span style="font-size:12px;color:var(--text2)">${g.orders.length} commande${g.orders.length>1?"s":""}</span>
+          <span style="flex:1"></span>
+          ${sel.size>0?`<span style="background:#17171A;color:#FFF;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600">${sel.size} sélectionnée${sel.size>1?"s":""}</span>`:""}
           <i class="ti ti-chevron-${isOpen?"up":"down"}" style="color:var(--text3);font-size:16px"></i>
         </div>
-      </div>
-      ${isOpen?`<div class="of-card-body">
-        ${pf.groups.map(g=>`
-          <div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+        ${isOpen?`<div style="padding:14px 16px">
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Répartition par dimension / couleur</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${Object.entries(g.breakdown).map(([k,v])=>`<span style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:4px 10px;font-size:12px"><strong>${v.toLocaleString("fr-FR")} pcs</strong>${k?" — "+k:""}</span>`).join("")}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+            <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px">Commandes à inclure</div>
+            <button onclick="toggleAllOFRef('${g.ref}')" style="padding:3px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);font-size:11px;font-weight:600;cursor:pointer;color:var(--text2)">
+              ${allSelected?"Tout désélectionner":"Tout sélectionner"}
+            </button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+            ${g.orders.map(o=>{
+              const checked=sel.has(o.ofId);
+              const late=lateOrders().find(l=>l.id===o.ofId);
+              return`<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);border:1px solid ${checked?"var(--teal)":"var(--border)"};background:${checked?"var(--teal-bg)":"var(--surface)"};cursor:pointer">
+                <input type="checkbox" ${checked?"checked":""} onclick="event.stopPropagation();toggleOFOrder('${g.ref}','${o.ofId}')" style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <span style="font-weight:700;font-size:13px">${o.ofId}</span>
+                    <span style="font-size:13px">${esc(o.client)}</span>
+                    ${dlLabel(daysLeft(o.deadline))}
+                    ${late?`<span style="background:var(--red-bg);color:var(--red);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">En retard</span>`:""}
+                  </div>
+                  <div style="font-size:11px;color:var(--text2);margin-top:3px">
+                    ${o.lines.map(l=>{const nb=nbPcsFromLine(l);const dim=l.dim?(isFacadeRef(g.ref)?l.dim+"mm":l.dim+"cm"):"";const col=l.color==="Personnalisée"?(l.colorCustom||"Perso"):l.color||"";return nb.toLocaleString("fr-FR")+" pcs"+(dim?" — "+dim:"")+(col?" "+col:"");}).join(" &nbsp;|&nbsp; ")}
+                  </div>
+                </div>
+                <span style="font-weight:700;font-size:13px;color:var(--teal);flex-shrink:0">${o.totalPcs.toLocaleString("fr-FR")} pcs</span>
+              </label>`;
+            }).join("")}
+          </div>
+          ${hasGamme?`<div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Gamme opératoire</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              ${Object.keys(GAMMES[g.ref]).map(gm=>`<button onclick="if(!S.ofGammeChoices)S.ofGammeChoices={};S.ofGammeChoices['${g.ref}']='${gm}';render()" style="padding:8px 16px;border-radius:var(--r);border:2px solid ${gamme===gm?"#17171A":"var(--border)"};background:${gamme===gm?"#17171A":"var(--surface)"};color:${gamme===gm?"#FFF":"var(--text)"};font-size:13px;font-weight:600;cursor:pointer">${gm}</button>`).join("")}
+            </div>
+          </div>`:""}
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <div style="font-size:13px;color:var(--text2)">
+              <strong style="color:var(--teal)">${sel.size}</strong> commande${sel.size>1?"s":""} — <strong style="color:var(--teal)">${selPcs.toLocaleString("fr-FR")} pcs</strong> sélectionnés
+            </div>
+            <button onclick="lancerOFRef('${g.ref}')" ${sel.size===0?"disabled":""} style="display:flex;align-items:center;gap:7px;padding:10px 20px;border-radius:var(--r);border:none;background:${sel.size>0?"#17171A":"#888"};color:#FFF;font-size:13px;font-weight:700;cursor:${sel.size>0?"pointer":"not-allowed"}">
+              <i class="ti ti-rocket"></i>Lancer l'OF
+            </button>
+          </div>
+        </div>`:""}
+      </div>`;
+    }).join("");
+  }
+
+  // ── OFs CRÉÉS ──
+  if(sorted.length){
+    h+=`<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 12px">OFs créés</div>`;
+    h+=sorted.map(pf=>{
+      const isOpen=S.openOf===pf.id;
+      return`<div class="of-card" style="margin-bottom:8px">
+        <div class="of-card-header" onclick="S.openOf=S.openOf==='${pf.id}'?null:'${pf.id}';render()">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:15px">${pf.id}</span>
+            <span style="font-size:12px;color:var(--text2)">${pf.date}</span>
+            <span style="font-size:12px;color:var(--text2)">${(pf.groups||[]).length} réf. — ${(pf.groups||[]).reduce((s,g)=>s+(g.totalPcs||0),0).toLocaleString("fr-FR")} pcs</span>
+            ${pill(OF_STATUS[pf.status]?.label||pf.status,OF_STATUS[pf.status]?.pill||"st-wait")}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <select onclick="event.stopPropagation()" onchange="updateOFStatus('${pf.id}',this.value)" style="font-size:11px;padding:3px 5px;width:auto">
+              ${Object.entries(OF_STATUS).map(([k,v])=>`<option value="${k}"${pf.status===k?" selected":""}>${v.label}</option>`).join("")}
+            </select>
+            <i class="ti ti-chevron-${isOpen?"up":"down"}" style="color:var(--text3);font-size:16px"></i>
+          </div>
+        </div>
+        ${isOpen?`<div class="of-card-body">
+          ${(pf.groups||[]).map(g=>`<div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
               <span style="font-weight:700;font-size:14px">${g.ref}</span>
               ${g.gamme?`<span style="background:var(--purple-bg);color:var(--purple);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600">${g.gamme}</span>`:""}
-              <span style="font-size:12px;color:var(--text2)">${g.totalPcs.toLocaleString("fr-FR")} pcs</span>
+              <span style="font-size:12px;color:var(--text2)">${(g.totalPcs||0).toLocaleString("fr-FR")} pcs</span>
             </div>
-            ${g.postes&&g.postes.length?`
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-              ${g.postes.map((p,i)=>`
-                <div style="display:flex;align-items:center;gap:4px">
-                  <span style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:3px 10px;font-size:11px;font-weight:500">${p}</span>
-                  ${i<g.postes.length-1?`<i class="ti ti-arrow-right" style="font-size:11px;color:var(--text3)"></i>`:""}
-                </div>`).join("")}
-            </div>`:""}
             <div class="table-scroll"><table style="min-width:400px;font-size:12px"><thead><tr>
-              <th>Désignation</th><th>Dim.</th><th class="hide-mobile">Couleur</th><th style="text-align:right">Qté</th><th style="text-align:right">Nb pièces</th>
+              <th>Désignation</th><th>Dim.</th><th class="hide-mobile">Couleur</th>
+              <th style="text-align:right">Qté</th><th style="text-align:right">Nb pcs</th>
             </tr></thead><tbody>
-              ${g.lines.map(l=>{
-                const isFacade=l.ref.startsWith("F-");
-                const nbPcs=isFacade?parseFloat(l.qty):(parseFloat(l.qty)||0)*25;
-                const dim=l.largeur?`${l.dim}×${l.largeur}`:l.dim;
-                return`<tr>
-                  <td style="font-weight:500">${esc(l.designation||l.ref)}</td>
-                  <td style="color:var(--text2)">${dim||"—"}</td>
-                  <td class="hide-mobile" style="color:var(--text2)">${esc(l.color==="Personnalisée"?(l.colorCustom||"Perso"):l.color||"—")}</td>
-                  <td style="text-align:right">${l.qty} ${isFacade?"pcs":"pqts"}</td>
-                  <td style="text-align:right;font-weight:700;color:${isFacade?"var(--purple)":"var(--teal)"}">${nbPcs.toLocaleString("fr-FR")}</td>
-                </tr>`;
-              }).join("")}
+              ${(g.lines||[]).map(l=>`<tr>
+                <td style="font-weight:500">${esc(l.designation||l.ref)}</td>
+                <td style="color:var(--text2)">${l.dim||"—"}</td>
+                <td class="hide-mobile" style="color:var(--text2)">${esc(l.color||"—")}</td>
+                <td style="text-align:right">${l.qty} ${isFacadeRef(l.ref)?"pcs":"pqts"}</td>
+                <td style="text-align:right;font-weight:700;color:${isFacadeRef(l.ref)?"var(--purple)":"var(--teal)"}">${nbPcsFromLine(l).toLocaleString("fr-FR")}</td>
+              </tr>`).join("")}
             </tbody></table></div>
           </div>`).join("")}
-      </div>`:""}
-    </div>`;
-  }).join("");
+        </div>`:""}
+      </div>`;
+    }).join("");
+  }
   return h;
 }
 
+function toggleOFOrder(ref,ofId){
+  if(!S.ofSelByRef)S.ofSelByRef={};
+  if(!S.ofSelByRef[ref])S.ofSelByRef[ref]=new Set();
+  if(S.ofSelByRef[ref].has(ofId))S.ofSelByRef[ref].delete(ofId);
+  else S.ofSelByRef[ref].add(ofId);
+  render();
+}
+function toggleAllOFRef(ref){
+  const allIds=S.orders.filter(o=>o.status==="EN_ATTENTE").filter(o=>{
+    const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+    return toA(o.lines).some(l=>l&&l.ref===ref&&l.qty);
+  }).map(o=>o.id);
+  if(!S.ofSelByRef)S.ofSelByRef={};
+  const sel=S.ofSelByRef[ref]||new Set();
+  const allSelected=allIds.length>0&&allIds.every(id=>sel.has(id));
+  S.ofSelByRef[ref]=allSelected?new Set():new Set(allIds);
+  render();
+}
+function lancerOFRef(ref){
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const sel=S.ofSelByRef&&S.ofSelByRef[ref]?S.ofSelByRef[ref]:new Set();
+  if(!sel.size){alert("Aucune commande sélectionnée.");return;}
+  const selOrders=S.orders.filter(o=>sel.has(o.id));
+  const lines=[];
+  selOrders.forEach(o=>toA(o.lines).filter(l=>l&&l.ref===ref&&l.qty).forEach(l=>lines.push({...l,ofId:o.id,client:o.client})));
+  const totalPcs=lines.reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const gamme=(S.ofGammeChoices&&S.ofGammeChoices[ref])||"";
+  const postes=GAMMES&&GAMMES[ref]&&gamme?GAMMES[ref][gamme]:[];
+  const pfNum=S.ofs.length+1;
+  const pfId="PF-"+String(pfNum).padStart(3,"0");
+  const pf={id:pfId,ref,date:todayStr(),createdAt:new Date().toISOString(),status:"LANCÉ",
+    groups:[{ref,gamme,postes:postes||[],lines,totalPcs}],orderIds:[...sel]};
+  S.ofs=[...S.ofs,pf];
+  if(db)db.ref("ofs/"+pfId).set(pf);
+  S.orders=S.orders.map(o=>sel.has(o.id)?{...o,status:"LANCÉ"}:o);
+  saveOrders();
+  if(S.ofSelByRef)delete S.ofSelByRef[ref];
+  alert("✅ "+pfId+" lancé — "+totalPcs.toLocaleString("fr-FR")+" pcs de "+ref+(gamme?" — "+gamme:""));
+  render();
+}
 function renderOFPanel(){
   const groups=Object.values(S.ofLaunchGroups);
   let h=`
@@ -1778,6 +1966,7 @@ function submitOrder(){
   };
   S.orders=[...S.orders,order];
   saveOrders();
+  sendSlackNotif(order,"ATELIER");
   S.form=emptyForm();
   setTab("orders","clients");
 }
@@ -2611,6 +2800,44 @@ function renderFacadeConfigurator(){
     <button class="btn btn-primary" onclick="saveFacadeConf()"><i class="ti ti-check"></i>Valider la configuration</button>
   </div>`;
 }
+
+// ── SLACK NOTIFICATION ──────────────────────────────────────────────────────
+const SLACK_WEBHOOK="https://hooks.slack.com/services/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";
+function sendSlackNotif(order,source){
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const lines=toA(order.lines||[]).filter(l=>l&&l.ref&&l.qty);
+  const totalP=lines.filter(l=>!isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const totalF=lines.filter(l=>isFacadeRef(l.ref)).reduce((s,l)=>s+nbPcsFromLine(l),0);
+  const icon=source==="WEB"?"🌐":"🏭";
+  const sourceLabel=source==="WEB"?"Commande web client":"Commande atelier";
+  const articlesSummary=[];
+  if(totalP>0)articlesSummary.push("*"+totalP.toLocaleString("fr-FR")+" pcs* poignées");
+  if(totalF>0)articlesSummary.push("*"+totalF.toLocaleString("fr-FR")+" pcs* façades");
+  const detailLines=lines.slice(0,5).map(l=>{
+    const nb=nbPcsFromLine(l);
+    return"• "+esc(l.designation||l.ref)+" — "+nb.toLocaleString("fr-FR")+" pcs";
+  }).join("\n")+(lines.length>5?"\n• … et "+(lines.length-5)+" autre(s)":"");
+  const msg={
+    blocks:[
+      {type:"header",text:{type:"plain_text",text:icon+" Nouvelle commande — "+order.id,emoji:true}},
+      {type:"section",fields:[
+        {type:"mrkdwn",text:"*Client :*\n"+(order.client||"—")},
+        {type:"mrkdwn",text:"*Source :*\n"+sourceLabel},
+        ...(order.contact?[{type:"mrkdwn",text:"*Contact :*\n"+order.contact}]:[]),
+        ...(order.mobile?[{type:"mrkdwn",text:"*Mobile :*\n"+order.mobile}]:[]),
+        ...(order.deadline?[{type:"mrkdwn",text:"*Délai :*\n"+order.deadline}]:[]),
+        ...(order.rep?[{type:"mrkdwn",text:"*Représentant :*\n"+order.rep}]:[]),
+      ]},
+      ...(articlesSummary.length?[{type:"section",text:{type:"mrkdwn",text:"📦 "+articlesSummary.join(" — ")}}]:[]),
+      ...(detailLines?[{type:"section",text:{type:"mrkdwn",text:detailLines}}]:[]),
+      {type:"divider"},
+      {type:"context",elements:[{type:"mrkdwn",text:"UND Atelier — "+new Date().toLocaleString("fr-FR")}]}
+    ]
+  };
+  fetch(SLACK_WEBHOOK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(msg)})
+    .catch(e=>console.warn("Slack notification failed:",e));
+}
+// ────────────────────────────────────────────────────────────────────────────
 // ─── INIT ───
 document.getElementById("topbar-date").textContent=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
 document.querySelectorAll(".nav-item[data-tab],.bn-item[data-tab]").forEach(b=>b.addEventListener("click",()=>setTab(b.dataset.tab,b.dataset.sub||null)));
