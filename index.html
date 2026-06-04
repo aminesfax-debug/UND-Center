@@ -246,6 +246,8 @@ textarea{resize:vertical}
     <div class="nav-section">Production</div>
     <button class="nav-item" data-tab="launch"><i class="ti ti-rocket"></i>Lancement OF</button>
     <button class="nav-item" data-tab="planning"><i class="ti ti-calendar-week"></i>Planning</button>
+    <div class="nav-section">Admin</div>
+    <button class="nav-item" data-tab="params"><i class="ti ti-settings"></i>Paramètres</button>
     <div class="nav-section">Stock</div>
     <button class="nav-item" data-tab="apurement"><i class="ti ti-checkup-list"></i>Apurement</button>
     <button class="nav-item" data-tab="bons"><i class="ti ti-package"></i>Bons d'entrée</button>
@@ -1620,7 +1622,7 @@ function renderLaunch(){
     h+=`<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 12px">OFs créés</div>`;
     h+=sorted.map(pf=>{
       const isOpen=S.openOf===pf.id;
-      return`<div class="of-card" id="order-card-${o.id}" style="margin-bottom:8px">
+      return`<div class="of-card" id="order-card-${pf.id}" style="margin-bottom:8px">
         <div class="of-card-header" onclick="S.openOf=S.openOf==='${pf.id}'?null:'${pf.id}';render()">
           <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
             <span style="font-weight:700;font-size:15px">${pf.id}</span>
