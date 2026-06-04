@@ -3124,6 +3124,7 @@ function sendSlackNotif(order,source){
     const nb=nbPcsFromLine(l);
     return"• "+esc(l.designation||l.ref)+" — "+nb.toLocaleString("fr-FR")+" pcs";
   }).join("\n")+(lines.length>5?"\n• … et "+(lines.length-5)+" autre(s)":"");
+  const appUrl="https://aminesfax-debug.github.io/UND-Center/";
   const msg={
     blocks:[
       {type:"header",text:{type:"plain_text",text:icon+" Nouvelle commande — "+order.id,emoji:true}},
@@ -3137,11 +3138,13 @@ function sendSlackNotif(order,source){
       ]},
       ...(articlesSummary.length?[{type:"section",text:{type:"mrkdwn",text:"📦 "+articlesSummary.join(" — ")}}]:[]),
       ...(detailLines?[{type:"section",text:{type:"mrkdwn",text:detailLines}}]:[]),
+      {type:"actions",elements:[
+        {type:"button",text:{type:"plain_text",text:"👁 Voir dans l'application",emoji:true},url:appUrl,style:"primary"},
+      ]},
       {type:"divider"},
       {type:"context",elements:[{type:"mrkdwn",text:"UND Atelier — "+new Date().toLocaleString("fr-FR")}]}
     ]
   };
-  // no-cors mode: browser sends the request, Slack receives it (response opaque but message delivered)
   fetch(SLACK_WEBHOOK,{method:"POST",mode:"no-cors",body:JSON.stringify(msg)})
     .catch(e=>console.warn("Slack notification failed:",e));
 }

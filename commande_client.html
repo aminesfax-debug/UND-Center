@@ -515,6 +515,7 @@ function sendNotif(order){
   const summary=[];
   if(totalP>0)summary.push("*"+totalP.toLocaleString("fr-FR")+" pcs* poignées");
   if(totalF>0)summary.push("*"+totalF.toLocaleString("fr-FR")+" pcs* façades");
+  const appUrl="https://aminesfax-debug.github.io/UND-Center/";
   const msg={blocks:[
     {type:"header",text:{type:"plain_text",text:"🌐 Nouvelle demande web — "+order.client,emoji:true}},
     {type:"section",fields:[
@@ -522,6 +523,9 @@ function sendNotif(order){
       {type:"mrkdwn",text:"*Contact :*\n"+(order.contact||"—")},
       {type:"mrkdwn",text:"*Mobile :*\n"+(order.mobile||"—")},
       {type:"mrkdwn",text:"*Articles :*\n"+(summary.join(" — ")||"—")},
+    ]},
+    {type:"actions",elements:[
+      {type:"button",text:{type:"plain_text",text:"👁 Voir dans l'application",emoji:true},url:appUrl,style:"primary"},
     ]},
     {type:"divider"},
     {type:"context",elements:[{type:"mrkdwn",text:"UND Atelier — "+new Date().toLocaleString("fr-FR")}]}
