@@ -813,7 +813,7 @@ function setTab(tab,sub){
   if(tab==="orders")S.subTab=sub||S.subTab||"articles";
   const titles={
     dashboard:"Tableau de bord",new_order:"Nouvelle commande",orders:S.subTab==="articles"?"Articles commandés":"Commandes clients",
-    launch:"Lancement OF",planning:"Planning semaine",apurement:"Apurement & Clôture",bons:"Bons d'entrée magasin",pending:"Demandes web clients"
+    launch:"Lancement OF",planning:"Planning semaine",apurement:"Apurement & Clôture",bons:"Bons d'entrée magasin",pending:"Demandes web clients",params:"Paramètres — Gammes & Temps standards"
   };
   document.getElementById("page-title").textContent=titles[tab]||tab;
   document.querySelectorAll(".nav-item[data-tab],.bn-item[data-tab]").forEach(b=>{
@@ -1620,7 +1620,7 @@ function renderLaunch(){
     h+=`<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 12px">OFs créés</div>`;
     h+=sorted.map(pf=>{
       const isOpen=S.openOf===pf.id;
-      return`<div class="of-card" style="margin-bottom:8px">
+      return`<div class="of-card" id="order-card-${o.id}" style="margin-bottom:8px">
         <div class="of-card-header" onclick="S.openOf=S.openOf==='${pf.id}'?null:'${pf.id}';render()">
           <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
             <span style="font-weight:700;font-size:15px">${pf.id}</span>
@@ -1882,8 +1882,14 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
   const hpjN=parseFloat(hpj)||8;
   const minPerDay=hpjN*60;
 
+  // Helper: get time for a poste, considering dim-specific profiles
+  function getTUnit(poste,dim){
+    const profile=getStdProfile(ref,dim);
+    if(profile&&profile.postes&&profile.postes[poste]!=null)return parseFloat(profile.postes[poste])||0;
+    return parseFloat(stdData[poste])||0; // fallback to flat stdData
+  }
   postes.forEach(poste=>{
-    const tUnit=parseFloat(stdData[poste])||0;
+    const tUnit=getTUnit(poste,"");
     const wsId=POSTE_MAP[poste]||null;
     if(!tUnit||!wsId){
       slots.push({poste,wsId:null,start:null,note:!tUnit?"Temps non saisi":"Poste non trouvé"});
@@ -2551,6 +2557,7 @@ function render(){
     else if(S.tab==="apurement")el.innerHTML=renderApurement();
     else if(S.tab==="bons")el.innerHTML=renderBons();
     else if(S.tab==="pending")el.innerHTML=renderPending();
+    else if(S.tab==="params")el.innerHTML=renderParams();
   }catch(err){
     console.error("Render error ["+S.tab+"]:",err);
     el.innerHTML=`<div class="card" style="border-color:var(--red)"><div style="color:var(--red);font-weight:700;margin-bottom:8px">⚠️ Erreur d'affichage</div><pre style="font-size:11px;color:var(--text2);white-space:pre-wrap">${String(err)}</pre></div>`;
@@ -3124,7 +3131,7 @@ function sendSlackNotif(order,source){
     const nb=nbPcsFromLine(l);
     return"• "+esc(l.designation||l.ref)+" — "+nb.toLocaleString("fr-FR")+" pcs";
   }).join("\n")+(lines.length>5?"\n• … et "+(lines.length-5)+" autre(s)":"");
-  const appUrl="https://aminesfax-debug.github.io/UND-Center/";
+  const appUrl="https://aminesfax-debug.github.io/UND-Center/#order="+encodeURIComponent(order.id);
   const msg={
     blocks:[
       {type:"header",text:{type:"plain_text",text:icon+" Nouvelle commande — "+order.id,emoji:true}},
@@ -3175,6 +3182,226 @@ function setSlackWebhook(url){
   alert("✅ Webhook Slack enregistré.");
 }
 // ────────────────────────────────────────────────────────────────────────────
+
+// ═══════════════════════════════════════════
+// ─── PARAMÈTRES — GAMMES & TEMPS STANDARDS ──
+// ═══════════════════════════════════════════
+
+// S.standards structure:
+// { "P-215": { profiles: [{ id, label, dims:["15","30",...], gamme:"Automatique", postes:{"Découpe presse":0.05,...} }] } }
+
+function getStdProfile(ref,dim){
+  const std=S.standards[ref];
+  if(!std||!std.profiles||!std.profiles.length)return null;
+  // Try exact dim match first
+  const exact=std.profiles.find(p=>p.dims&&p.dims.includes(String(dim)));
+  if(exact)return exact;
+  // Fall back to default profile (dims empty or undefined)
+  const def=std.profiles.find(p=>!p.dims||!p.dims.length);
+  return def||std.profiles[0];
+}
+
+function saveStdProfiles(ref,profiles){
+  if(!S.standards[ref])S.standards[ref]={};
+  S.standards[ref].profiles=profiles;
+  if(db)db.ref("standards/"+ref).set(S.standards[ref]);
+}
+
+// ── Params state ──
+let P_STATE={
+  subTab:"gammes", // "gammes" | "standards"
+  selRef:null,
+  editProfile:null, // {profileIdx, profile copy}
+  dirty:false,
+};
+
+function renderParams(){
+  const tabs=["gammes","standards"];
+  const tabLabels={"gammes":"Gammes opératoires","standards":"Temps standards"};
+  let h=`<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
+    ${tabs.map(t=>`<button onclick="P_STATE.subTab='${t}';P_STATE.selRef=null;P_STATE.editProfile=null;render()" style="padding:7px 14px;border-radius:var(--r);border:1px solid ${P_STATE.subTab===t?"#17171A":"var(--border)"};background:${P_STATE.subTab===t?"#17171A":"transparent"};color:${P_STATE.subTab===t?"#FFF":"var(--text2)"};font-size:13px;font-weight:500;cursor:pointer">${tabLabels[t]}</button>`).join("")}
+  </div>`;
+  return h+(P_STATE.subTab==="gammes"?renderParamsGammes():renderParamsStandards());
+}
+
+function renderParamsGammes(){
+  const allRefs=[...Object.keys(GAMMES),...Object.keys(FACADE_MODELS).map(k=>k)].filter((v,i,a)=>a.indexOf(v)===i);
+  const sel=P_STATE.selRef;
+  let h=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    ${allRefs.map(ref=>`<button onclick="P_STATE.selRef='${ref}';P_STATE.editProfile=null;render()" style="padding:6px 14px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${ref}</button>`).join("")}
+  </div>`;
+  if(!sel)return h+`<div class="card"><div class="empty"><i class="ti ti-list"></i><p>Sélectionnez une référence pour gérer ses gammes.</p></div></div>`;
+
+  const gammes=GAMMES[sel]||{};
+  h+=`<div class="card">
+    <div class="card-title"><i class="ti ti-sitemap"></i>Gammes — ${sel}</div>
+    ${Object.entries(gammes).length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px">Aucune gamme définie.</div>`:""}
+    ${Object.entries(gammes).map(([gname,postes])=>`
+    <div style="margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <strong style="font-size:14px">${gname}</strong>
+        <button onclick="deleteGamme('${sel}','${gname}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;font-size:11px;color:#A32D2D;cursor:pointer"><i class="ti ti-trash"></i></button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        ${postes.map((p,i)=>`
+        <span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px">${i+1}. ${p}</span>
+        ${i<postes.length-1?`<i class="ti ti-arrow-right" style="color:var(--text3);font-size:12px"></i>`:""}`).join("")}
+      </div>
+    </div>`).join("")}
+    <button onclick="addGamme('${sel}')" class="btn btn-sm" style="margin-top:8px"><i class="ti ti-plus"></i>Ajouter une gamme</button>
+  </div>`;
+  return h;
+}
+
+function renderParamsStandards(){
+  const allRefs=Object.keys(GAMMES);
+  const sel=P_STATE.selRef;
+  let h=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    ${allRefs.map(ref=>{
+      const hasStd=S.standards[ref]&&S.standards[ref].profiles&&S.standards[ref].profiles.length>0;
+      return`<button onclick="P_STATE.selRef='${ref}';P_STATE.editProfile=null;render()" style="padding:6px 14px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">
+        ${ref}${hasStd?` <span style="font-size:10px;opacity:.7">✓</span>`:""}
+      </button>`;
+    }).join("")}
+  </div>`;
+  if(!sel)return h+`<div class="card"><div class="empty"><i class="ti ti-clock"></i><p>Sélectionnez une référence pour gérer ses temps standards.</p></div></div>`;
+
+  const profiles=(S.standards[sel]&&S.standards[sel].profiles)||[];
+  const editIdx=P_STATE.editProfile!==null?P_STATE.editProfile.idx:null;
+
+  h+=`<div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-clock"></i>Profils de temps standards — ${sel}
+      <button onclick="addStdProfile('${sel}')" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Nouveau profil</button>
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:12px">
+      Un profil définit la gamme et les temps pour un groupe de dimensions. Créez un profil "Défaut" + des profils spécifiques pour les dimensions particulières.
+    </p>
+    ${profiles.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px;padding:8px 0">Aucun profil défini. Cliquez "Nouveau profil" pour commencer.</div>`:""}
+    ${profiles.map((prof,idx)=>{
+      const isEdit=editIdx===idx;
+      const ep=isEdit?P_STATE.editProfile.data:prof;
+      return`<div style="margin-bottom:12px;border:1px solid ${isEdit?"var(--teal)":"var(--border)"};border-radius:var(--rl);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isEdit?"var(--teal-bg)":"var(--surface2)"}">
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:13px">${prof.label||"Profil "+(idx+1)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">
+              ${prof.dims&&prof.dims.length?`Dimensions : ${prof.dims.join(", ")} cm`:"Toutes dimensions (défaut)"}
+              — Gamme : ${prof.gamme||"—"}
+              — ${Object.keys(prof.postes||{}).length} postes configurés
+            </div>
+          </div>
+          <button onclick="editStdProfile('${sel}',${idx})" style="padding:5px 10px;border-radius:var(--r);border:1px solid ${isEdit?"var(--teal)":"var(--border)"};background:${isEdit?"var(--teal)":"#FFF"};color:${isEdit?"#FFF":"var(--text2)"};cursor:pointer;font-size:12px">
+            <i class="ti ${isEdit?"ti-x":"ti-pencil"}"></i>${isEdit?" Annuler":""}</button>
+          <button onclick="deleteStdProfile('${sel}',${idx})" style="padding:5px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;cursor:pointer;font-size:12px"><i class="ti ti-trash"></i></button>
+        </div>
+        ${isEdit?`<div style="padding:16px">
+          <div class="form-grid" style="margin-bottom:12px">
+            <div class="form-group">
+              <label>Nom du profil</label>
+              <input type="text" value="${esc(ep.label||"")}" placeholder="ex: Défaut, Grandes dimensions" oninput="P_STATE.editProfile.data.label=this.value">
+            </div>
+            <div class="form-group">
+              <label>Gamme opératoire</label>
+              <select onchange="P_STATE.editProfile.data.gamme=this.value;P_STATE.editProfile.data.postes={};render()">
+                <option value="">— Choisir —</option>
+                ${Object.keys(GAMMES[sel]||{}).map(g=>`<option value="${g}"${ep.gamme===g?" selected":""}>${g}</option>`).join("")}
+              </select>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label>Dimensions concernées (laisser vide = toutes)</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+              ${(DIMS.filter(d=>d!=="")).map(d=>{
+                const checked=ep.dims&&ep.dims.includes(d);
+                return`<label style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;border:1px solid ${checked?"var(--teal)":"var(--border)"};background:${checked?"var(--teal-bg)":"#FFF"};cursor:pointer;font-size:12px">
+                  <input type="checkbox" ${checked?"checked":""} onchange="toggleStdDim('${d}',this.checked)" style="cursor:pointer">${d} cm
+                </label>`;
+              }).join("")}
+            </div>
+          </div>
+          ${ep.gamme&&GAMMES[sel]&&GAMMES[sel][ep.gamme]?`
+          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Temps unitaire par poste (min/pcs)</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+            ${(GAMMES[sel][ep.gamme]||[]).map((poste,pi)=>{
+              const t=ep.postes&&ep.postes[poste]||"";
+              return`<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--r)">
+                <div style="font-weight:600;font-size:13px">${pi+1}. ${poste}</div>
+                <input type="number" value="${t}" min="0" step="0.001" placeholder="0.000"
+                  oninput="if(!P_STATE.editProfile.data.postes)P_STATE.editProfile.data.postes={};P_STATE.editProfile.data.postes['${poste}']=parseFloat(this.value)||0"
+                  style="width:90px;font-size:14px;text-align:right;padding:6px 10px">
+                <span style="font-size:12px;color:var(--text2)">min/pcs</span>
+              </div>`;
+            }).join("")}
+          </div>`:ep.gamme?`<div style="color:var(--text3);font-size:12px">Gamme sélectionnée non trouvée dans GAMMES.</div>`:`<div style="color:var(--text3);font-size:12px;font-style:italic">Sélectionnez une gamme pour configurer les temps.</div>`}
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="P_STATE.editProfile=null;render()" class="btn">Annuler</button>
+            <button onclick="saveStdProfile('${sel}',${idx})" class="btn btn-primary" style="width:auto;padding:10px 20px"><i class="ti ti-device-floppy"></i>Enregistrer</button>
+          </div>
+        </div>`:""}
+      </div>`;
+    }).join("")}
+  </div>`;
+  return h;
+}
+
+function addGamme(ref){
+  const name=prompt("Nom de la nouvelle gamme (ex: Semi-Automatique) :");
+  if(!name)return;
+  const postesStr=prompt("Postes séparés par des virgules :
+(ex: Coupe,Ébavurage,Peinture,Emballage)","Coupe,Ébavurage,Peinture,Emballage");
+  if(!postesStr)return;
+  if(!GAMMES[ref])GAMMES[ref]={};
+  GAMMES[ref][name]=postesStr.split(",").map(p=>p.trim()).filter(Boolean);
+  render();
+}
+function deleteGamme(ref,name){
+  if(!confirm("Supprimer la gamme '"+name+"' pour "+ref+" ?"))return;
+  if(GAMMES[ref])delete GAMMES[ref][name];
+  render();
+}
+
+function addStdProfile(ref){
+  const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
+  const newProfile={label:"Nouveau profil",dims:[],gamme:Object.keys(GAMMES[ref]||{})[0]||"",postes:{}};
+  profiles.push(newProfile);
+  saveStdProfiles(ref,profiles);
+  P_STATE.editProfile={idx:profiles.length-1,data:JSON.parse(JSON.stringify(newProfile))};
+  render();
+}
+function editStdProfile(ref,idx){
+  if(P_STATE.editProfile&&P_STATE.editProfile.idx===idx){P_STATE.editProfile=null;}
+  else{
+    const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
+    P_STATE.editProfile={idx,data:JSON.parse(JSON.stringify(profiles[idx]))};
+  }
+  render();
+}
+function deleteStdProfile(ref,idx){
+  if(!confirm("Supprimer ce profil ?"))return;
+  const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
+  profiles.splice(idx,1);
+  saveStdProfiles(ref,profiles);
+  P_STATE.editProfile=null;
+  render();
+}
+function toggleStdDim(dim,checked){
+  if(!P_STATE.editProfile)return;
+  if(!P_STATE.editProfile.data.dims)P_STATE.editProfile.data.dims=[];
+  if(checked){if(!P_STATE.editProfile.data.dims.includes(dim))P_STATE.editProfile.data.dims.push(dim);}
+  else{P_STATE.editProfile.data.dims=P_STATE.editProfile.data.dims.filter(d=>d!==dim);}
+  render();
+}
+function saveStdProfile(ref,idx){
+  const ep=P_STATE.editProfile&&P_STATE.editProfile.data;
+  if(!ep){return;}
+  if(!ep.gamme){alert("Veuillez sélectionner une gamme.");return;}
+  const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
+  profiles[idx]={...ep};
+  saveStdProfiles(ref,profiles);
+  P_STATE.editProfile=null;
+  render();
+}
+
 // ─── INIT ───
 document.getElementById("topbar-date").textContent=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
 document.querySelectorAll(".nav-item[data-tab],.bn-item[data-tab]").forEach(b=>b.addEventListener("click",()=>setTab(b.dataset.tab,b.dataset.sub||null)));
@@ -3200,7 +3427,16 @@ document.getElementById("content").innerHTML=`
 
 loadAll().then(()=>{
   updateBadges();
-  render();
+  // Check for deep link ?cmd= or #order= to open specific order
+  const urlParams=new URLSearchParams(window.location.search);
+  const hashCmd=window.location.hash.match(/order=([^&]+)/);
+  const targetCmd=urlParams.get("cmd")||(hashCmd?decodeURIComponent(hashCmd[1]):null);
+  if(targetCmd){
+    S.expandedOrder=targetCmd;
+    setTab("orders","clients");
+  } else {
+    render();
+  }
   if(db){
     db.ref("standards").once("value").then(s=>{S.standards=s.val()||{};}).catch(()=>{});
     db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});

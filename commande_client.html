@@ -515,7 +515,7 @@ function sendNotif(order){
   const summary=[];
   if(totalP>0)summary.push("*"+totalP.toLocaleString("fr-FR")+" pcs* poignées");
   if(totalF>0)summary.push("*"+totalF.toLocaleString("fr-FR")+" pcs* façades");
-  const appUrl="https://aminesfax-debug.github.io/UND-Center/";
+  const appUrl="https://aminesfax-debug.github.io/UND-Center/#order="+encodeURIComponent(order.id);
   const msg={blocks:[
     {type:"header",text:{type:"plain_text",text:"🌐 Nouvelle demande web — "+order.client,emoji:true}},
     {type:"section",fields:[
