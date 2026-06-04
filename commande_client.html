@@ -222,55 +222,43 @@ function emptyFacCfg(model){return{model:model||"F-500",w:"",h:"",color:"",cc:""
 // ── POIGNÉES TABLE ──
 function buildPoigTable(){
   const tbody=document.getElementById("poig-body");
-  if(!tbody)return;
-  let rows="";
-  for(let i=1;i<=NLINES;i++){
-    const has10=(i===11||i===12); // P-240, P-242 in position 11,12
-    rows+=`<tr>
-      <td style="color:var(--text3);font-size:11px">${i}</td>
-      <td><select class="sm" id="pr${i}" onchange="onPRef(${i})">
-        <option value="">—</option>
-        ${REFS_P.map(r=>`<option value="${r}">${r}</option>`).join("")}
-      </select></td>
-      <td><select class="sm" id="pd${i}" onchange="onPChange(${i})">
-        <option value="">— dim —</option>
-        ${DIMS.filter(d=>d!=="").map(d=>`<option value="${d}">${d} cm</option>`).join("")}
-      </select></td>
-      <td>
-        <select class="sm" id="pc${i}" onchange="onPChange(${i})">
-          ${COLORS.map(c=>`<option value="${c}">${c}</option>`).join("")}
-        </select>
-        <input class="sm" type="text" id="pcc${i}" placeholder="Couleur…" style="display:none;margin-top:3px" oninput="onPChange(${i})">
-      </td>
-      <td><input type="text" id="pdes${i}" readonly style="background:var(--surface2);color:var(--text2);font-size:11px"></td>
-      <td><input class="sm" type="number" id="pq${i}" min="0" placeholder="0" oninput="onPChange(${i})"></td>
-      <td class="nb" id="pnb${i}">—</td>
-      <td class="ta hide-mob" id="ppt${i}">—</td>
-    </tr>`;
-    document.getElementById("pc"+i)&&document.getElementById("pc"+i).addEventListener("change",function(){
-      document.getElementById("pcc"+i).style.display=this.value==="Personnalisée"?"block":"none";
-      onPChange(i);
-    });
+  if(!tbody){console.error("poig-body not found");return;}
+  const refsOpts='<option value="">—</option>'+REFS_P.map(function(r){return'<option value="'+r+'">'+r+'</option>';}).join("");
+  const dimsOpts='<option value="">— dim —</option>'+DIMS.filter(function(d){return d!=="";}).map(function(d){return'<option value="'+d+'">'+d+' cm</option>';}).join("");
+  const colOpts=COLORS.map(function(c){return'<option value="'+c+'">'+c+'</option>';}).join("");
+  var html="";
+  for(var i=1;i<=NLINES;i++){
+    html+='<tr>';
+    html+='<td style="color:var(--text3);font-size:11px">'+i+'</td>';
+    html+='<td><select class="sm" id="pr'+i+'" onchange="onPRef('+i+')">'+refsOpts+'</select></td>';
+    html+='<td><select class="sm" id="pd'+i+'" onchange="onPChange('+i+')">'+dimsOpts+'</select></td>';
+    html+='<td><select class="sm" id="pc'+i+'" onchange="onPColChange('+i+',this.value)">'+colOpts+'</select>';
+    html+='<input class="sm" type="text" id="pcc'+i+'" placeholder="Couleur…" style="display:none;margin-top:3px" oninput="onPChange('+i+')">';
+    html+='</td>';
+    html+='<td><input type="text" id="pdes'+i+'" readonly style="background:var(--surface2);color:var(--text2);font-size:11px"></td>';
+    html+='<td><input class="sm" type="number" id="pq'+i+'" min="0" placeholder="0" oninput="onPChange('+i+')"></td>';
+    html+='<td class="nb" id="pnb'+i+'">—</td>';
+    html+='<td class="ta hide-mob" id="ppt'+i+'">—</td>';
+    html+='</tr>';
   }
-  tbody.innerHTML=rows;
-  // Attach color listeners after DOM update
-  for(let i=1;i<=NLINES;i++){
-    const colEl=document.getElementById("pc"+i);
-    if(colEl)colEl.addEventListener("change",function(){
-      const cc=document.getElementById("pcc"+i);
-      if(cc)cc.style.display=this.value==="Personnalisée"?"block":"none";
-      onPChange(i);
-    });
-  }
+  tbody.innerHTML=html;
   updatePoigFoot();
 }
+function onPColChange(i,val){
+  var cc=document.getElementById("pcc"+i);
+  if(cc)cc.style.display=val==="Personnalisée"?"block":"none";
+  onPChange(i);
+}
 function onPRef(i){
-  const ref=document.getElementById("pr"+i).value;
-  const dd=document.getElementById("pd"+i);
+  var ref=document.getElementById("pr"+i).value;
+  var dd=document.getElementById("pd"+i);
   if(dd){
-    const has10=ref==="P-240"||ref==="P-242";
-    dd.innerHTML='<option value="">— dim —</option>'+
-      DIMS.filter(d=>d!==""&&(d!=="10"||has10)).map(d=>`<option value="${d}">${d} cm</option>`).join("");
+    var has10=ref==="P-240"||ref==="P-242";
+    var opts='<option value="">— dim —</option>';
+    DIMS.filter(function(d){return d!==""&&(d!=="10"||has10);}).forEach(function(d){
+      opts+='<option value="'+d+'">'+d+' cm</option>';
+    });
+    dd.innerHTML=opts;
   }
   onPChange(i);
 }
@@ -358,7 +346,7 @@ function renderFacConf(){
       <div class="form-group">
         <label class="fl">Couleur</label>
         <select onchange="FAC_CONF.cfg.color=this.value;renderFacConf()">
-          ${COLORS.map(c=>`<option value="${c}"${cfg.color===c?" selected":""}>\${c}</option>`).join("")}
+          ${COLORS.map(c=>`<option value="${c}"${cfg.color===c?" selected":""}>${c}</option>`).join("")}
         </select>
         ${cfg.color==="Personnalisée"?`<input type="text" value="${esc(cfg.cc||"")}" placeholder="Couleur…" style="margin-top:6px" oninput="FAC_CONF.cfg.cc=this.value;renderFacConf()">`:""}
       </div>
@@ -388,7 +376,20 @@ function renderFacConf(){
         ${GLASS_TYPES.map(t=>`<button class="conf-btn${cfg.glass.type===t?" active":""}" onclick="FAC_CONF.cfg.glass.type='${t}';renderFacConf()">${t}</button>`).join("")}
       </div>`:""}
     </div>
-    ${hinges>0?`<div style="background:var(--surface2);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:14px"><i class="ti ti-tool"></i> <strong>${hinges} charnières ${m.hingeType}</strong> — calculées pour ${cfg.h}mm</div>`:""}
+    ${hinges>0?`<div style="background:var(--surface2);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--text2);margin-bottom:14px">
+      <i class="ti ti-tool"></i> <strong>${hinges} charnières ${m.hingeType}</strong> — calculées pour ${cfg.h}mm
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        ${(function(){
+          var pos=[];var h=parseInt(cfg.h);
+          if(h>0){
+            var first=135,last=h-135;
+            if(hinges===1){pos=[Math.round(h/2)];}
+            else{pos=[first];var step=(last-first)/(hinges-1);for(var k=1;k<hinges-1;k++)pos.push(Math.round(first+k*step));pos.push(last);}
+          }
+          return pos.map(function(p,k){return'<span style="background:#FFF;border:1px solid var(--border);border-radius:var(--r);padding:3px 10px;font-size:11px;font-weight:600">Ch.'+(k+1)+' : '+p+'mm</span>';}).join('');
+        })()}
+      </div>
+    </div>`:""}
     <div style="display:flex;gap:8px">
       <button class="btn" onclick="closeFac()">Annuler</button>
       <button class="btn btn-teal" onclick="saveFac()"><i class="ti ti-check"></i> Valider</button>
