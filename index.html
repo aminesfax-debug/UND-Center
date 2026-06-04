@@ -3141,7 +3141,19 @@ function sendSlackNotif(order,source){
 }
 
 // Set webhook URL (called after user provides it)
-function promptSlackWebhook(){
+function toggleMlc(lid){
+  const body=document.getElementById("mlc-body-"+lid);
+  if(body)body.classList.toggle("open");
+  // Update chevron icon
+  const card=document.getElementById("mlc-"+lid);
+  if(card){
+    const ico=card.querySelector(".mlc-header i.ti");
+    if(ico){
+      const isOpen=body&&body.classList.contains("open");
+      ico.className=ico.className.replace(isOpen?"ti-chevron-down":"ti-chevron-up",isOpen?"ti-chevron-up":"ti-chevron-down");
+    }
+  }
+}
   const current=SLACK_WEBHOOK?"Webhook actuel configuré.":"⚠️ Aucun webhook configuré.";
   const url=prompt(current+"\n\nCollez la nouvelle URL webhook Slack :\n(https://hooks.slack.com/services/...)","");
   if(url&&url.startsWith("https://hooks.slack.com/"))setSlackWebhook(url);
