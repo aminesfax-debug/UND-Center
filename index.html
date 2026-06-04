@@ -2372,14 +2372,18 @@ function attachFormListeners(){
   if(S.tab!=="new_order")return;
 
   function updateDesignation(lid){
-    // Scope to desktop table to avoid mobile card duplicates
-    const sc=document.getElementById("desk-tbody")||document;
-    const refEl=sc.querySelector(`.ref-sel[data-lid="${lid}"]`);
-    const dimSelEl=sc.querySelector(`.dim-sel[data-lid="${lid}"]`);
-    const dimInpEl=sc.querySelector(`.dim-inp[data-lid="${lid}"]`);
-    const largeurEl=sc.querySelector(`.largeur-inp[data-lid="${lid}"]`);
-    const colorEl=sc.querySelector(`.color-inp[data-lid="${lid}"]`);
-    const colorCustomEl=sc.querySelector(`.color-custom[data-lid="${lid}"]`);
+    // Search in both desktop table and mobile cards
+    function q(sel){
+      const dt=document.getElementById("desk-tbody");
+      const mc=document.getElementById("mobile-lines-container");
+      return (dt&&dt.querySelector(sel))||(mc&&mc.querySelector(sel))||document.querySelector(sel);
+    }
+    const refEl=q(`.ref-sel[data-lid="${lid}"]`);
+    const dimSelEl=q(`.dim-sel[data-lid="${lid}"]`);
+    const dimInpEl=q(`.dim-inp[data-lid="${lid}"]`);
+    const largeurEl=q(`.largeur-inp[data-lid="${lid}"]`);
+    const colorEl=q(`.color-inp[data-lid="${lid}"]`);
+    const colorCustomEl=q(`.color-custom[data-lid="${lid}"]`);
 
     const ref=refEl?refEl.value:"";
     const isFacade=ref.startsWith("F-");
@@ -2417,12 +2421,12 @@ function attachFormListeners(){
       if(autoPrice!==""){
         line.prixTarif=autoPrice;
         const sc3=document.getElementById("desk-tbody")||document;
-        const prixEl=sc3.querySelector(`.prix-input[data-lid="${lid}"]`);
+        const prixEl=sc3.querySelector(`.prix-input[data-lid="${lid}"]`)||document.querySelector(`.prix-input[data-lid="${lid}"]`);
         if(prixEl)prixEl.value=autoPrice;
       }
     }
     const sc4=document.getElementById("desk-tbody")||document;
-    const inp=sc4.querySelector(`.desig-inp[data-lid="${lid}"]`);
+    const inp=sc4.querySelector(`.desig-inp[data-lid="${lid}"]`)||document.querySelector(`.desig-inp[data-lid="${lid}"]`);
     if(inp)inp.value=desig;
     updateLineTotals(lid);
   }
@@ -2439,8 +2443,8 @@ function attachFormListeners(){
     const totalHT=puNet*nbPcs;
 
     // Update nb-pcs, remise, pu-net, line-total-ht in this row
-    const sc2=document.getElementById("desk-tbody")||document;
-    const qtyEl=sc2.querySelector(`[data-lid="${lid}"][data-lf="qty"]`);
+    const sc2=document.getElementById("desk-tbody")||document.getElementById("mobile-lines-container")||document;
+    const qtyEl=sc2.querySelector(`[data-lid="${lid}"][data-lf="qty"]`) || document.querySelector(`[data-lid="${lid}"][data-lf="qty"]`);
     if(qtyEl){
       const row=qtyEl.closest("tr");
       if(row){
@@ -2481,21 +2485,23 @@ function attachFormListeners(){
     });
   }
 
-  // Scope listeners to desktop table only (avoid picking up hidden mobile cards)
+  // Scope listeners to desktop table AND mobile cards
   const deskTbody=document.getElementById("desk-tbody");
-  const scope=deskTbody||document;
-  scope.querySelectorAll("[data-lid]").forEach(el=>{
-    const lf=el.dataset.lf;
-    if(lf==="designation")return;
-    const handler=()=>{
-      const lid=parseInt(el.dataset.lid);
-      const line=S.form.lines.find(l=>l.id===lid);if(!line)return;
-      line[lf]=el.value;
-      if(["ref","dim","color","largeur","colorCustom"].includes(lf))updateDesignation(lid);
-      if(["qty","prixTarif","remise"].includes(lf))updateLineTotals(lid);
-    };
-    el.addEventListener("input",handler);
-    el.addEventListener("change",handler);
+  const mobileContainer=document.getElementById("mobile-lines-container");
+  [deskTbody,mobileContainer].filter(Boolean).forEach(scope=>{
+    scope.querySelectorAll("[data-lid]").forEach(el=>{
+      const lf=el.dataset.lf;
+      if(lf==="designation")return;
+      const handler=()=>{
+        const lid=parseInt(el.dataset.lid);
+        const line=S.form.lines.find(l=>l.id===lid);if(!line)return;
+        line[lf]=el.value;
+        if(["ref","dim","color","largeur","colorCustom"].includes(lf))updateDesignation(lid);
+        if(["qty","prixTarif","remise"].includes(lf))updateLineTotals(lid);
+      };
+      el.addEventListener("input",handler);
+      el.addEventListener("change",handler);
+    });
   });
 
   ["client","deadline","rep","paymentTerms"].forEach(id=>{
