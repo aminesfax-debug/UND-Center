@@ -1813,17 +1813,13 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
 
   S.standardsForm=null;
 
-  // Show summary
-  const lines=slots.map(s=>s.start?
-    "• "+s.poste+" : "+s.start+" → "+s.end+" ("+s.nbDays+"j / "+s.totalMin+" min)":
-    "• "+s.poste+" : "+( s.note||"non planifié")
-  ).join("
-");
-  alert("📅 Planning proposé pour "+pfId+":
-
-"+lines+"
-
-Consultez le menu Planning pour voir et ajuster.");
+  // Show summary and navigate to planning
+  S.standardsForm=null;
+  const summary=slots.map(s=>s.start?
+    `${s.poste} : ${s.start} → ${s.end} (${s.nbDays}j / ${s.totalMin} min)`:
+    `${s.poste} : ${s.note||"non planifié"}`
+  ).join(", ");
+  console.log("Planning proposé pour "+pfId+": "+summary);
   setTab("planning");
 }
 
