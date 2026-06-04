@@ -2,8 +2,8 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>UND — Passer une commande</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>UND — Commande en ligne</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="UND Commande">
 <meta name="theme-color" content="#17171A">
@@ -12,97 +12,73 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--teal:#0F6E56;--teal-bg:#E1F5EE;--purple:#534AB7;--purple-bg:#EEEDFE;--border:#DDDBD5;--border2:#C8C6BF;--text:#1A1A18;--text2:#6A6A65;--text3:#A8A8A3;--surface:#FFF;--surface2:#F4F3EF;--r:8px;--rl:12px}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--surface2);color:var(--text);font-size:14px;min-height:100vh}
-.header{background:#17171A;padding:14px 20px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:50}
-.header img{height:38px;filter:invert(1)}
-.header-text h1{font-size:14px;font-weight:700;color:#FFF;letter-spacing:-.3px}
-.header-text p{font-size:11px;color:#888;margin-top:1px}
-.content{max-width:880px;margin:0 auto;padding:18px 14px 60px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:16px 18px;margin-bottom:14px}
-.card-title{font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:7px}
-.card-title i{font-size:15px;color:var(--text3)}
+:root{--teal:#0F6E56;--teal-bg:#E1F5EE;--purple:#534AB7;--border:#DDDBD5;--border2:#C8C6BF;--text:#1A1A18;--text2:#6A6A65;--text3:#A8A8A3;--surface:#FFF;--surface2:#F4F3EF;--r:8px;--rl:12px}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--surface2);color:var(--text);font-size:14px}
+.hdr{background:#17171A;padding:14px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:50}
+.hdr img{height:36px;filter:invert(1)}
+.hdr h1{font-size:14px;font-weight:700;color:#FFF}
+.hdr p{font-size:11px;color:#888;margin-top:1px}
+.content{max-width:900px;margin:0 auto;padding:18px 14px 60px}
+.card{background:#FFF;border:1px solid var(--border);border-radius:var(--rl);padding:16px 18px;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .form-group{display:flex;flex-direction:column;gap:4px}
-.form-group label{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
-input,select,textarea{font-family:inherit;font-size:13px;padding:9px 11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);width:100%;transition:border .15s}
-input:focus,select:focus,textarea:focus{outline:none;border-color:#17171A}
-/* Desktop table */
-.desktop-only{display:block}
-.mobile-only{display:none}
-.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{width:100%;border-collapse:collapse;min-width:580px}
-th{font-size:11px;font-weight:700;color:var(--text2);padding:8px 10px;border-bottom:1px solid var(--border);background:var(--surface2);text-align:left;white-space:nowrap}
-td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:12px}
-/* Mobile cards */
-.mlc{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden}
-.mlc-hd{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer;user-select:none;transition:background .12s}
-.mlc-hd:active{background:var(--surface2)}
-.mlc-num{width:28px;height:28px;background:#17171A;color:#FFF;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
-.mlc-info{flex:1;min-width:0}
-.mlc-info strong{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mlc-info span{font-size:12px;color:var(--text2)}
-.mlc-pcs{font-size:13px;font-weight:700;color:var(--teal);white-space:nowrap}
-.mlc-bd{display:none;padding:14px;border-top:1px solid var(--border)}
-.mlc-bd.open{display:block}
-.mlc-field{margin-bottom:12px}
-.mlc-field label{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:5px}
-.mlc-field input,.mlc-field select{font-size:16px;padding:11px 12px;-webkit-appearance:auto}
-.mlc-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.mlc-result{display:flex;justify-content:space-between;background:var(--surface2);border-radius:var(--r);padding:10px 14px;margin-top:6px;font-size:13px}
-.mlc-result strong{color:var(--teal)}
-.mlc-desig{background:var(--surface2);border-radius:var(--r);padding:10px 14px;font-size:13px;font-weight:500;min-height:38px;margin-bottom:8px}
-/* Facade list */
-.fac-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:12px 14px;margin-bottom:8px}
-/* Configurator buttons */
-.conf-btn{padding:8px 14px;border-radius:var(--r);border:2px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
-.conf-btn.active{border-color:#17171A;background:#17171A;color:#FFF}
-/* Submit */
-.btn-submit{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;background:#17171A;color:#FFF;border:none;border-radius:var(--r);font-size:15px;font-weight:700;cursor:pointer;transition:all .15s}
-.btn-submit:hover{background:#2E2E2C}
-.btn-submit:disabled{background:#888;cursor:not-allowed}
-.info-box{background:var(--teal-bg);border:1px solid #1D9E75;border-radius:var(--r);padding:12px 16px;font-size:12px;color:var(--teal);display:flex;gap:10px;margin-bottom:16px}
-.success-box{background:#EAF3DE;border:1px solid #C0DD97;border-radius:var(--rl);padding:28px;text-align:center;display:none}
+label.fl{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+input,select,textarea{font-family:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--border2);border-radius:var(--r);width:100%;background:#FFF;color:var(--text)}
+input:focus,select:focus{outline:none;border-color:#17171A}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:560px}
+th{font-size:11px;font-weight:700;color:var(--text2);padding:8px 10px;border-bottom:1px solid var(--border);background:var(--surface2);text-align:left}
+td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+select.sm{font-size:12px;padding:5px 7px}
+input.sm{font-size:12px;padding:5px 7px}
+.nb{text-align:right;font-weight:700;color:var(--teal);font-size:12px}
+.ta{text-align:right;color:var(--text2);font-size:11px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--r);border:1px solid var(--border);background:#FFF;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn-primary{background:#17171A;color:#FFF;border:none;width:100%;justify-content:center;padding:14px;font-size:15px}
+.btn-primary:disabled{background:#888;cursor:not-allowed}
+.btn-teal{background:var(--teal);color:#FFF;border:none}
+.btn-red{background:#FEE;border:1px solid #F09595;color:#A32D2D}
+.info{background:var(--teal-bg);border:1px solid #1D9E75;border-radius:var(--r);padding:12px 16px;font-size:12px;color:var(--teal);display:flex;gap:10px;margin-bottom:16px}
 .err{color:#A32D2D;font-size:12px;margin-top:6px;display:none}
-@media(max-width:640px){
-  .desktop-only{display:none}
-  .mobile-only{display:block}
+.success{display:none;text-align:center;padding:2rem}
+/* Facade configurator */
+.conf-btn{padding:8px 14px;border-radius:var(--r);border:2px solid var(--border);background:#FFF;font-size:12px;font-weight:600;cursor:pointer;transition:all .12s}
+.conf-btn.active{border-color:#17171A;background:#17171A;color:#FFF}
+.fac-item{background:#FFF;border:1px solid var(--border);border-radius:var(--rl);padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+/* Mobile */
+@media(max-width:600px){
   .form-grid{grid-template-columns:1fr}
-  .content{padding:12px 12px 60px}
-  .mlc-2col{grid-template-columns:1fr}
+  .hide-mob{display:none}
+  input,select{font-size:16px;padding:11px 12px}
 }
 </style>
 </head>
 <body>
-<div class="header">
+<div class="hdr">
   <img src="data:image/png;base64,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" alt="UND">
-  <div class="header-text">
-    <h1>Useful New and Design</h1>
-    <p>Formulaire de commande en ligne</p>
-  </div>
+  <div><h1>Useful New and Design</h1><p>Formulaire de commande en ligne</p></div>
 </div>
-
 <div class="content">
-  <div class="info-box">
-    <i class="ti ti-info-circle" style="font-size:18px;flex-shrink:0"></i>
-    <span>Soumettez votre demande. Notre équipe commerciale vous contactera pour confirmer l'offre avec les remises applicables.</span>
+  <div class="info"><i class="ti ti-info-circle" style="font-size:18px;flex-shrink:0"></i>
+    <span>Soumettez votre demande — notre équipe vous contactera pour confirmer l'offre avec les remises applicables.</span>
   </div>
 
   <div id="form-area">
-    <!-- En-tête -->
+    <!-- Coordonnées -->
     <div class="card">
-      <div class="card-title"><i class="ti ti-user"></i>Vos coordonnées</div>
+      <div class="card-title"><span><i class="ti ti-user"></i> Vos coordonnées</span></div>
       <div class="form-grid">
         <div class="form-group" style="grid-column:1/-1">
-          <label>Société / Client *</label>
+          <label class="fl">Société / Client *</label>
           <input type="text" id="c-client" placeholder="Raison sociale ou nom du client">
         </div>
         <div class="form-group">
-          <label>Personne à contacter *</label>
+          <label class="fl">Personne à contacter *</label>
           <input type="text" id="c-contact" placeholder="Nom et prénom">
         </div>
         <div class="form-group">
-          <label>N° Mobile *</label>
+          <label class="fl">N° Mobile *</label>
           <input type="tel" id="c-mobile" placeholder="Ex: 98 000 000" inputmode="tel">
         </div>
       </div>
@@ -111,56 +87,45 @@ td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle;f
 
     <!-- BLOC 1: Poignées -->
     <div class="card">
-      <div class="card-title"><i class="ti ti-hand-grab"></i>Poignées</div>
-
-      <!-- Mobile -->
-      <div class="mobile-only" id="m-poignees"></div>
-
-      <!-- Desktop -->
-      <div class="desktop-only">
-        <div class="table-wrap">
-          <table id="desk-poignees">
-            <thead><tr>
-              <th style="width:20px">#</th>
-              <th style="width:100px">Référence</th>
-              <th style="width:80px">Dimension</th>
-              <th style="width:110px">Couleur</th>
-              <th>Désignation</th>
-              <th style="width:62px">Qté</th>
-              <th style="width:75px;text-align:right">Nb pcs</th>
-              <th style="width:82px;text-align:right">P.Tarif/pcs</th>
-            </tr></thead>
-            <tbody id="desk-poig-body"></tbody>
-            <tfoot id="desk-poig-foot"></tfoot>
-          </table>
-        </div>
+      <div class="card-title"><span><i class="ti ti-hand-grab"></i> Poignées</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Référence</th><th>Dimension</th><th>Couleur</th>
+            <th>Désignation</th><th>Qté (pqts)</th>
+            <th style="text-align:right">Nb pcs</th>
+            <th style="text-align:right" class="hide-mob">P.Tarif</th>
+          </tr></thead>
+          <tbody id="poig-body"></tbody>
+          <tfoot id="poig-foot"></tfoot>
+        </table>
       </div>
     </div>
 
     <!-- BLOC 2: Façades -->
     <div class="card">
       <div class="card-title">
-        <i class="ti ti-layout-columns"></i>Façades
-        <button onclick="openFacConf(null)" style="margin-left:auto;padding:5px 12px;border-radius:var(--r);border:1px solid var(--teal);color:var(--teal);background:var(--teal-bg);font-size:12px;font-weight:600;cursor:pointer">
-          <i class="ti ti-plus"></i> Ajouter une façade
+        <span><i class="ti ti-layout-columns"></i> Façades</span>
+        <button class="btn btn-teal" onclick="openFac(null)" style="font-size:12px;padding:6px 12px">
+          <i class="ti ti-plus"></i> Ajouter
         </button>
       </div>
-      <div id="fac-conf-area"></div>
-      <div id="fac-list"></div>
-      <div id="fac-footer"></div>
+      <div id="fac-conf"></div>
+      <div id="fac-list"><div style="color:var(--text3);font-style:italic;font-size:13px">Aucune façade ajoutée</div></div>
+      <div id="fac-foot"></div>
     </div>
 
-    <div id="err-lines" class="err" style="margin-bottom:12px;font-size:13px">Veuillez saisir au moins un article (poignée ou façade).</div>
-    <button class="btn-submit" onclick="submitCommande()" id="btn-submit">
-      <i class="ti ti-send"></i> Envoyer ma demande de commande
+    <div id="err-lines" class="err" style="font-size:13px;margin-bottom:10px">Veuillez saisir au moins un article.</div>
+    <button class="btn btn-primary" id="btn-send" onclick="submitCmd()">
+      <i class="ti ti-send"></i> Envoyer ma demande
     </button>
   </div>
 
-  <div class="success-box" id="success-area">
+  <div class="success" id="success-area">
     <div style="font-size:48px;margin-bottom:12px">✅</div>
-    <h2 style="font-size:20px;font-weight:700;color:#3B6D11;margin-bottom:8px">Demande envoyée !</h2>
-    <p style="font-size:13px;color:#3B6D11;margin-bottom:16px">Votre demande a bien été reçue.<br>Notre équipe commerciale vous contactera très prochainement.</p>
-    <button class="btn-submit" style="max-width:240px;margin:0 auto" onclick="resetForm()">Passer une nouvelle commande</button>
+    <h2 style="font-weight:700;margin-bottom:8px">Demande envoyée !</h2>
+    <p style="color:var(--text2);margin-bottom:16px">Notre équipe vous contactera prochainement.</p>
+    <button class="btn btn-primary" style="max-width:240px;margin:0 auto" onclick="resetCmd()">Nouvelle commande</button>
   </div>
 </div>
 
@@ -216,449 +181,320 @@ const FACADE_MODELS={
   "SKIN-MAXI":{label:"Skin Maxi",profil:"Borderless 45mm",handle:"optional",hingeType:"Blum 35mm"},
 };
 const NLINES=10;
-
 firebase.initializeApp(FB_CONFIG);
 const db=firebase.database();
+let SLACK_WEBHOOK="";
+db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
 
 // ── STATE ──
-let APP={
-  poigLines:Array.from({length:NLINES},(_,i)=>({id:i+1,ref:"",dim:"",color:"",colorCustom:"",qty:"",desig:"",prixTarif:""})),
-  facLines:[],
-  facConf:null, // {editId, cfg}
-};
+let FAC_LINES=[];
+let FAC_CONF=null;
 
-// ── HELPERS ──
-function isFac(ref){return ref&&(ref.startsWith("F-")||ref.startsWith("SKIN-"));}
+function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function todayStr(){return new Date().toISOString().split("T")[0];}
-function getPrixTarif(ref,dim){const v=PRIX_TARIF[ref+"_"+dim];return v!==undefined?v:null;}
-function calcHingeCount(h){if(h<=1000)return 2;if(h<=1600)return 3;if(h<=2400)return 4;return 5;}
-
-function buildPoigDesig(ref,dim,color,colorCustom){
+function getPT(ref,dim){const v=PRIX_TARIF[ref+"_"+dim];return v!==undefined?v:null;}
+function calcHinges(h){if(h<=1000)return 2;if(h<=1600)return 3;if(h<=2400)return 4;return 5;}
+function poigDesig(ref,dim,color,cc){
   if(!ref)return"";
   const parts=["Poignée",ref.replace("P-","")];
   if(dim)parts.push(dim+"cm");
-  const c=color==="Personnalisée"?colorCustom:color;
+  const c=color==="Personnalisée"?cc:color;
   if(c)parts.push(c);
   return parts.join(" ");
 }
-function buildFacDesig(cfg){
+function facDesig(cfg){
   const m=FACADE_MODELS[cfg.model];if(!m)return cfg.model||"";
   const parts=[m.label];
-  if(cfg.width&&cfg.height)parts.push(cfg.width+"×"+cfg.height+"mm");
-  if(cfg.color){const c=cfg.color==="Personnalisée"?cfg.colorCustom:cfg.color;if(c)parts.push(c);}
+  if(cfg.w&&cfg.h)parts.push(cfg.w+"×"+cfg.h+"mm");
+  if(cfg.color){const c=cfg.color==="Personnalisée"?cfg.cc:cfg.color;if(c)parts.push(c);}
   if(m.handle==="fixed")parts.push("Avec poignée");
-  else if(cfg.handle&&cfg.handle.has){
+  else if(cfg.hdl&&cfg.hdl.has){
     let h="Avec poignée";
-    if(cfg.handle.type)h+=" en "+cfg.handle.type;
-    if(cfg.handle.orientation)h+=" ("+cfg.handle.orientation+")";
+    if(cfg.hdl.type)h+=" en "+cfg.hdl.type;
+    if(cfg.hdl.orient)h+=" ("+cfg.hdl.orient+")";
     parts.push(h);
   }
   if(cfg.glass&&cfg.glass.has&&cfg.glass.type)parts.push("Verre "+cfg.glass.type);
   return parts.join(" — ");
 }
-function emptyFacCfg(model){
-  return{model:model||"F-500",width:"",height:"",color:"",colorCustom:"",
-    handle:{has:false,type:"U",orientation:"Horizontal"},
-    glass:{has:false,type:"Transparent"},qty:1};
-}
+function emptyFacCfg(model){return{model:model||"F-500",w:"",h:"",color:"",cc:"",hdl:{has:false,type:"U",orient:"Horizontal"},glass:{has:false,type:"Transparent"},qty:1};}
 
-function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
-function refsOpts(cur){return'<option value="">—</option>'+REFS_P.map(r=>'<option value="'+r+'"'+(cur===r?" selected":"")+'>'+r+'</option>').join("");}
-function dimsOpts(ref,cur){
-  const has10=ref==="P-240"||ref==="P-242";
-  return DIMS.filter(d=>d===""||d!=="10"||has10).map(d=>d?'<option value="'+d+'"'+(cur===d?" selected":"")+'>'+d+' cm</option>':'<option value="">— dim —</option>').join("");
-}
-function colorsOpts(cur){return COLORS.map(c=>'<option value="'+c+'"'+(cur===c?" selected":"")+'>'+c+'</option>').join("");}
-
-// ── POIGNÉES DESKTOP ──
-function renderPoigDesktop(){
-  const tbody=document.getElementById("desk-poig-body");
-  const tfoot=document.getElementById("desk-poig-foot");
+// ── POIGNÉES TABLE ──
+function buildPoigTable(){
+  const tbody=document.getElementById("poig-body");
   if(!tbody)return;
-  tbody.innerHTML=APP.poigLines.map((l,i)=>{
-    const nb=(parseFloat(l.qty)||0)*25;
-    const pt=l.prixTarif||"";
-    return'<tr>'+
-      '<td style="color:var(--text3);font-size:11px;font-weight:600">'+(i+1)+'</td>'+
-      '<td><select id="dr-'+l.id+'" onchange="onPoigRef('+l.id+')"><option value="">—</option>'+REFS_P.map(r=>'<option value="'+r+'"'+(l.ref===r?" selected":"")+'>'+r+'</option>').join("")+'</select></td>'+
-      '<td><select id="dd-'+l.id+'" onchange="onPoigChange('+l.id+')">'+(dimsOpts(l.ref,l.dim))+'</select></td>'+
-      '<td>'+
-        '<select id="dc-'+l.id+'" onchange="onPoigChange('+l.id+')">'+colorsOpts(l.color)+'</select>'+
-        '<input type="text" id="dcc-'+l.id+'" value="'+esc(l.colorCustom)+'" placeholder="Couleur…" style="margin-top:3px;font-size:11px;display:'+(l.color==="Personnalisée"?"block":"none")+'" oninput="APP.poigLines['+(i)+'].colorCustom=this.value;updatePoigRow('+l.id+')">'+
-      '</td>'+
-      '<td><input type="text" id="ddes-'+l.id+'" value="'+esc(l.desig)+'" readonly style="background:var(--surface2);color:var(--text2);font-size:11px"></td>'+
-      '<td><input type="number" id="dq-'+l.id+'" value="'+(l.qty||"")+'" min="0" oninput="APP.poigLines['+(i)+'].qty=this.value;updatePoigTotals()" style="font-size:11px"></td>'+
-      '<td style="text-align:right;font-weight:700;color:var(--teal);font-size:12px" id="dnb-'+l.id+'">'+(!nb?"—":nb.toLocaleString("fr-FR"))+'</td>'+
-      '<td style="text-align:right;font-size:11px;color:var(--text2)" id="dpt-'+l.id+'">'+(!pt?"—":parseFloat(pt).toFixed(3))+'</td>'+
-    '</tr>';
-  }).join("");
-  updatePoigTotals();
-}
-
-function onPoigRef(id){
-  const idx=APP.poigLines.findIndex(l=>l.id===id);
-  const el=document.getElementById("dr-"+id);
-  APP.poigLines[idx].ref=el.value;
-  APP.poigLines[idx].dim="";
-  APP.poigLines[idx].color=COLORS[0];
-  APP.poigLines[idx].colorCustom="";
-  // Rebuild dim select for this ref
-  const dd=document.getElementById("dd-"+id);
-  if(dd)dd.innerHTML=dimsOpts(el.value,"");
-  onPoigChange(id);
-}
-function onPoigChange(id){
-  const idx=APP.poigLines.findIndex(l=>l.id===id);
-  const l=APP.poigLines[idx];
-  const refEl=document.getElementById("dr-"+id);
-  const dimEl=document.getElementById("dd-"+id);
-  const colEl=document.getElementById("dc-"+id);
-  const ccolEl=document.getElementById("dcc-"+id);
-  if(refEl)l.ref=refEl.value;
-  if(dimEl)l.dim=dimEl.value;
-  if(colEl)l.color=colEl.value;
-  if(ccolEl){ccolEl.style.display=l.color==="Personnalisée"?"block":"none";l.colorCustom=ccolEl.value;}
-  l.desig=buildPoigDesig(l.ref,l.dim,l.color,l.colorCustom);
-  const pt=getPrixTarif(l.ref,l.dim);
-  l.prixTarif=pt!==null?pt:"";
-  updatePoigRow(id);
-  updatePoigTotals();
-}
-function updatePoigRow(id){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  const nb=(parseFloat(l.qty)||0)*25;
-  const desEl=document.getElementById("ddes-"+id);if(desEl)desEl.value=l.desig;
-  const nbEl=document.getElementById("dnb-"+id);if(nbEl)nbEl.textContent=nb>0?nb.toLocaleString("fr-FR"):"—";
-  const ptEl=document.getElementById("dpt-"+id);if(ptEl)ptEl.textContent=l.prixTarif?parseFloat(l.prixTarif).toFixed(3):"—";
-}
-function updatePoigTotals(){
-  const total=APP.poigLines.reduce((s,l)=>s+(parseFloat(l.qty)||0)*25,0);
-  const tfoot=document.getElementById("desk-poig-foot");
-  if(tfoot)tfoot.innerHTML=total>0?'<tr style="background:var(--surface2);border-top:2px solid var(--border2)"><td colspan="6" style="font-weight:600;font-size:12px;padding:8px 10px;color:var(--text2)">Total poignées</td><td style="text-align:right;font-weight:700;font-size:13px;color:var(--teal);padding:8px 10px">'+total.toLocaleString("fr-FR")+" pcs</td><td></td></tr>":"";
-  renderPoigMobile();
-}
-
-// ── POIGNÉES MOBILE ──
-function renderPoigMobile(){
-  const el=document.getElementById("m-poignees");if(!el)return;
-  el.innerHTML=APP.poigLines.map((l,i)=>{
-    const nb=(parseFloat(l.qty)||0)*25;
-    const hasData=l.ref&&l.qty;
-    return'<div class="mlc" id="mpc-'+l.id+'">'+
-      '<div class="mlc-hd" onclick="toggleMlc('+l.id+')">'+
-        '<div class="mlc-num">'+(i+1)+'</div>'+
-        '<div class="mlc-info">'+
-          '<strong id="mplab-'+l.id+'" style="'+(hasData?'':'color:var(--text3);font-weight:400;font-style:italic')+'">'+
-            (hasData?esc(l.desig||l.ref):"Toucher pour saisir")+
-          '</strong>'+
-          '<span id="mpsub-'+l.id+'">'+(!hasData?"":l.qty+" pqts")+'</span>'+
-        '</div>'+
-        (nb>0?'<div class="mlc-pcs" id="mppcs-'+l.id+'">'+nb.toLocaleString("fr-FR")+" pcs</div>":"")+
-        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A8A8A3" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>'+
-      '</div>'+
-      '<div class="mlc-bd" id="mlcb-'+l.id+'">'+
-        '<div class="mlc-field"><label>Référence</label>'+
-          '<select onchange="onMPoigRef('+l.id+',this.value)"><option value="">—</option>'+
-          REFS_P.map(r=>'<option value="'+r+'"'+(l.ref===r?" selected":"")+'>'+r+'</option>').join("")+
-          '</select></div>'+
-        '<div class="mlc-2col">'+
-          '<div class="mlc-field"><label>Dimension</label>'+
-            '<select id="mpdim-'+l.id+'" onchange="onMPoigChange('+l.id+')">'+(dimsOpts(l.ref,l.dim))+'</select></div>'+
-          '<div class="mlc-field"><label>Quantité (pqts)</label>'+
-            '<input type="number" id="mpqty-'+l.id+'" value="'+(l.qty||"")+'" min="0" inputmode="numeric" oninput="onMPoigQty('+l.id+',this.value)"></div>'+
-        '</div>'+
-        '<div class="mlc-field"><label>Couleur</label>'+
-          '<select id="mpcol-'+l.id+'" onchange="onMPoigCol('+l.id+',this.value)">'+colorsOpts(l.color)+'</select>'+
-          '<input type="text" id="mpccol-'+l.id+'" value="'+esc(l.colorCustom)+'" placeholder="Saisir couleur…" style="margin-top:6px;display:'+(l.color==="Personnalisée"?"block":"none")+'" oninput="onMPoigCCol('+l.id+',this.value)">'+
-        '</div>'+
-        '<div class="mlc-field"><label>Désignation</label>'+
-          '<div class="mlc-desig" id="mpdes-'+l.id+'">'+(l.desig||"—")+'</div></div>'+
-        '<div class="mlc-result"><span>Nb pièces</span><strong id="mpnb-'+l.id+'">'+(!nb?"—":nb.toLocaleString("fr-FR")+" pcs")+'</strong></div>'+
-        '<div class="mlc-result" style="margin-top:6px"><span>Prix tarif/pcs</span><strong id="mppt-'+l.id+'">'+(!l.prixTarif?"—":parseFloat(l.prixTarif).toFixed(3)+" TND")+'</strong></div>'+
-      '</div>'+
-    '</div>';
-  }).join("");
-}
-
-function toggleMlc(id){const bd=document.getElementById("mlcb-"+id);if(bd)bd.classList.toggle("open");}
-
-function syncMPoig(id){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  const nb=(parseFloat(l.qty)||0)*25;
-  const lab=document.getElementById("mplab-"+id);
-  const sub=document.getElementById("mpsub-"+id);
-  const pcs=document.getElementById("mppcs-"+id);
-  const des=document.getElementById("mpdes-"+id);
-  const pt=document.getElementById("mppt-"+id);
-  if(lab){const has=l.ref&&l.qty;lab.textContent=has?(l.desig||l.ref):"Toucher pour saisir";lab.style.color=has?"var(--text)":"var(--text3)";lab.style.fontStyle=has?"normal":"italic";lab.style.fontWeight=has?"600":"400";}
-  if(sub)sub.textContent=l.ref&&l.qty?l.qty+" pqts":"";
-  if(des)des.textContent=l.desig||"—";
-  if(pt)pt.textContent=l.prixTarif?parseFloat(l.prixTarif).toFixed(3)+" TND":"—";
-  // update pcs badge
-  const hdr=document.getElementById("mpc-"+id);
-  if(hdr){
-    let pcsEl=document.getElementById("mppcs-"+id);
-    if(!pcsEl&&nb>0){const h=hdr.querySelector(".mlc-hd");const span=document.createElement("div");span.className="mlc-pcs";span.id="mppcs-"+id;h.insertBefore(span,h.lastChild);}
-    pcsEl=document.getElementById("mppcs-"+id);
-    if(pcsEl)pcsEl.textContent=nb>0?nb.toLocaleString("fr-FR")+" pcs":"";
+  let rows="";
+  for(let i=1;i<=NLINES;i++){
+    const has10=(i===11||i===12); // P-240, P-242 in position 11,12
+    rows+=`<tr>
+      <td style="color:var(--text3);font-size:11px">${i}</td>
+      <td><select class="sm" id="pr${i}" onchange="onPRef(${i})">
+        <option value="">—</option>
+        ${REFS_P.map(r=>`<option value="${r}">${r}</option>`).join("")}
+      </select></td>
+      <td><select class="sm" id="pd${i}" onchange="onPChange(${i})">
+        <option value="">— dim —</option>
+        ${DIMS.filter(d=>d!=="").map(d=>`<option value="${d}">${d} cm</option>`).join("")}
+      </select></td>
+      <td>
+        <select class="sm" id="pc${i}" onchange="onPChange(${i})">
+          ${COLORS.map(c=>`<option value="${c}">${c}</option>`).join("")}
+        </select>
+        <input class="sm" type="text" id="pcc${i}" placeholder="Couleur…" style="display:none;margin-top:3px" oninput="onPChange(${i})">
+      </td>
+      <td><input type="text" id="pdes${i}" readonly style="background:var(--surface2);color:var(--text2);font-size:11px"></td>
+      <td><input class="sm" type="number" id="pq${i}" min="0" placeholder="0" oninput="onPChange(${i})"></td>
+      <td class="nb" id="pnb${i}">—</td>
+      <td class="ta hide-mob" id="ppt${i}">—</td>
+    </tr>`;
+    document.getElementById("pc"+i)&&document.getElementById("pc"+i).addEventListener("change",function(){
+      document.getElementById("pcc"+i).style.display=this.value==="Personnalisée"?"block":"none";
+      onPChange(i);
+    });
   }
-  updatePoigTotals();
+  tbody.innerHTML=rows;
+  // Attach color listeners after DOM update
+  for(let i=1;i<=NLINES;i++){
+    const colEl=document.getElementById("pc"+i);
+    if(colEl)colEl.addEventListener("change",function(){
+      const cc=document.getElementById("pcc"+i);
+      if(cc)cc.style.display=this.value==="Personnalisée"?"block":"none";
+      onPChange(i);
+    });
+  }
+  updatePoigFoot();
+}
+function onPRef(i){
+  const ref=document.getElementById("pr"+i).value;
+  const dd=document.getElementById("pd"+i);
+  if(dd){
+    const has10=ref==="P-240"||ref==="P-242";
+    dd.innerHTML='<option value="">— dim —</option>'+
+      DIMS.filter(d=>d!==""&&(d!=="10"||has10)).map(d=>`<option value="${d}">${d} cm</option>`).join("");
+  }
+  onPChange(i);
+}
+function onPChange(i){
+  const ref=document.getElementById("pr"+i).value;
+  const dim=document.getElementById("pd"+i).value;
+  const color=document.getElementById("pc"+i).value;
+  const cc=document.getElementById("pcc"+i).value;
+  const qty=parseFloat(document.getElementById("pq"+i).value)||0;
+  const nb=qty*25;
+  const pt=getPT(ref,dim);
+  const desig=poigDesig(ref,dim,color,cc);
+  const desEl=document.getElementById("pdes"+i);if(desEl)desEl.value=desig;
+  const nbEl=document.getElementById("pnb"+i);if(nbEl)nbEl.textContent=nb>0?nb.toLocaleString("fr-FR"):"—";
+  const ptEl=document.getElementById("ppt"+i);if(ptEl)ptEl.textContent=pt!==null?pt.toFixed(3)+" TND":"—";
+  updatePoigFoot();
+}
+function updatePoigFoot(){
+  const total=Array.from({length:NLINES},(_,i)=>parseFloat(document.getElementById("pq"+(i+1))?.value)||0).reduce((s,q)=>s+q*25,0);
+  const foot=document.getElementById("poig-foot");
+  if(foot)foot.innerHTML=total>0?`<tr style="background:var(--surface2);border-top:2px solid var(--border2)">
+    <td colspan="6" style="font-weight:600;padding:8px 10px;font-size:12px">Total poignées</td>
+    <td class="nb" style="padding:8px 10px">${total.toLocaleString("fr-FR")} pcs</td><td></td></tr>`:"";
 }
 
-function onMPoigRef(id,val){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  l.ref=val;l.dim="";l.color=COLORS[0];l.colorCustom="";
-  const dd=document.getElementById("mpdim-"+id);if(dd)dd.innerHTML=dimsOpts(val,"");
-  const cc=document.getElementById("mpcol-"+id);if(cc)cc.value=COLORS[0];
-  l.desig=buildPoigDesig(l.ref,l.dim,l.color,l.colorCustom);
-  l.prixTarif=getPrixTarif(l.ref,l.dim)||"";
-  syncMPoig(id);
-}
-function onMPoigChange(id){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  const dd=document.getElementById("mpdim-"+id);if(dd)l.dim=dd.value;
-  l.desig=buildPoigDesig(l.ref,l.dim,l.color,l.colorCustom);
-  l.prixTarif=getPrixTarif(l.ref,l.dim)||"";
-  syncMPoig(id);
-}
-function onMPoigQty(id,val){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  l.qty=val;syncMPoig(id);
-}
-function onMPoigCol(id,val){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  l.color=val;
-  const cc=document.getElementById("mpccol-"+id);if(cc)cc.style.display=val==="Personnalisée"?"block":"none";
-  l.desig=buildPoigDesig(l.ref,l.dim,l.color,l.colorCustom);
-  syncMPoig(id);
-}
-function onMPoigCCol(id,val){
-  const l=APP.poigLines.find(x=>x.id===id);if(!l)return;
-  l.colorCustom=val;
-  l.desig=buildPoigDesig(l.ref,l.dim,l.color,l.colorCustom);
-  syncMPoig(id);
-}
-
-// ── FAÇADES CONFIGURATEUR ──
-function openFacConf(editId){
-  const existing=editId!==null&&editId!==undefined?APP.facLines.find(f=>f.id===editId):null;
-  const cfg=existing?JSON.parse(JSON.stringify(existing.cfg)):emptyFacCfg("F-500");
-  APP.facConf={editId:editId!==null&&editId!==undefined?editId:null,cfg};
+// ── FAÇADES ──
+function openFac(editId){
+  const ex=editId!==null&&editId!==undefined?FAC_LINES.find(f=>f.id===editId):null;
+  FAC_CONF={editId:editId!==null&&editId!==undefined?editId:null,cfg:ex?JSON.parse(JSON.stringify(ex.cfg)):emptyFacCfg("F-500")};
   renderFacConf();
-  renderFacList();
 }
-function closeFacConf(){APP.facConf=null;renderFacConf();renderFacList();}
-function saveFacConf(){
-  if(!APP.facConf)return;
-  const cfg=APP.facConf.cfg;
-  if(!cfg.width||!cfg.height){alert("Veuillez saisir largeur et hauteur.");return;}
-  const line={
-    id:APP.facConf.editId!==null&&APP.facConf.editId!==undefined?APP.facConf.editId:"fac-"+Date.now(),
-    ref:cfg.model,designation:buildFacDesig(cfg),
-    qty:cfg.qty||1,dim:String(cfg.height),largeur:String(cfg.width),
-    color:cfg.color==="Personnalisée"?cfg.colorCustom:cfg.color,
-    unit:"pcs",nbPcs:cfg.qty||1,cfg:JSON.parse(JSON.stringify(cfg)),
-  };
-  if(APP.facConf.editId!==null&&APP.facConf.editId!==undefined)
-    APP.facLines=APP.facLines.map(f=>f.id===APP.facConf.editId?line:f);
-  else APP.facLines=[...APP.facLines,line];
-  APP.facConf=null;
+function closeFac(){FAC_CONF=null;renderFacConf();}
+function saveFac(){
+  if(!FAC_CONF)return;
+  const cfg=FAC_CONF.cfg;
+  if(!cfg.w||!cfg.h){alert("Veuillez saisir largeur et hauteur.");return;}
+  const line={id:FAC_CONF.editId!==null&&FAC_CONF.editId!==undefined?FAC_CONF.editId:"fac-"+Date.now(),
+    ref:cfg.model,designation:facDesig(cfg),qty:cfg.qty||1,
+    dim:String(cfg.h),largeur:String(cfg.w),
+    color:cfg.color==="Personnalisée"?cfg.cc:cfg.color,
+    unit:"pcs",nbPcs:cfg.qty||1,cfg:JSON.parse(JSON.stringify(cfg))};
+  if(FAC_CONF.editId!==null&&FAC_CONF.editId!==undefined)
+    FAC_LINES=FAC_LINES.map(f=>f.id===FAC_CONF.editId?line:f);
+  else FAC_LINES=[...FAC_LINES,line];
+  FAC_CONF=null;
   renderFacConf();renderFacList();
 }
+function delFac(id){FAC_LINES=FAC_LINES.filter(f=>f.id!==id);renderFacList();}
 
 function renderFacConf(){
-  const el=document.getElementById("fac-conf-area");if(!el)return;
-  if(!APP.facConf){el.innerHTML="";return;}
-  const cfg=APP.facConf.cfg;
-  const m=FACADE_MODELS[cfg.model]||{};
-  const hasOptHandle=m.handle==="optional";
-  const fixedHandle=m.handle==="fixed";
-  const hinges=cfg.height>0?calcHingeCount(parseInt(cfg.height)):0;
+  const el=document.getElementById("fac-conf");if(!el)return;
+  if(!FAC_CONF){el.innerHTML="";return;}
+  const cfg=FAC_CONF.cfg;const m=FACADE_MODELS[cfg.model]||{};
+  const hasOpt=m.handle==="optional";const fixed=m.handle==="fixed";
+  const hinges=cfg.h>0?calcHinges(parseInt(cfg.h)):0;
+  const desig=facDesig(cfg);
 
-  el.innerHTML='<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);padding:16px;margin-bottom:12px">'+
-    // Désignation preview
-    '<div style="background:#17171A;color:#FFF;border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:12px">'+
-      '<div style="font-size:10px;color:#888;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Désignation</div>'+
-      '<div style="font-weight:600" id="fac-desig-prev">'+(buildFacDesig(cfg)||"—")+'</div>'+
-    '</div>'+
-    // Modèle
-    '<div style="margin-bottom:14px"><div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Modèle</div>'+
-    '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
-    Object.entries(FACADE_MODELS).map(([k,v])=>'<button class="conf-btn'+(cfg.model===k?" active":"")+'" onclick="setFacModel(''+k+''">'+v.label+'</button>').join("")+
-    '</div>'+
-    '<div style="font-size:11px;color:var(--text2);margin-top:6px">Profilé : <strong>'+m.profil+'</strong> &nbsp;|&nbsp; Charnières : <strong>'+m.hingeType+'</strong></div>'+
-    '</div>'+
-    // Dimensions + Couleur + Qté
-    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">'+
-      '<div class="form-group"><label>Largeur (mm) — max 600</label>'+
-        '<input type="number" value="'+(cfg.width||"")+'" min="1" max="600" inputmode="numeric" placeholder="ex: 400"'+
-        ' oninput="APP.facConf.cfg.width=parseInt(this.value)||'';" onblur="refreshFacConf()"></div>'+
-      '<div class="form-group"><label>Hauteur (mm) — max 2900</label>'+
-        '<input type="number" value="'+(cfg.height||"")+'" min="1" max="2900" inputmode="numeric" placeholder="ex: 2000"'+
-        ' oninput="APP.facConf.cfg.height=parseInt(this.value)||'';" onblur="refreshFacConf()"></div>'+
-      '<div class="form-group"><label>Couleur</label>'+
-        '<select onchange="APP.facConf.cfg.color=this.value;refreshFacConf()">'+COLORS.map(c=>'<option value="'+c+'"'+(cfg.color===c?" selected":"")+'>'+c+'</option>').join("")+'</select>'+
-        (cfg.color==="Personnalisée"?'<input type="text" value="'+(cfg.colorCustom||"")+'" placeholder="Saisir couleur…" style="margin-top:6px" oninput="APP.facConf.cfg.colorCustom=this.value;refreshFacConf()">':"")+
-      '</div>'+
-      '<div class="form-group"><label>Quantité</label>'+
-        '<input type="number" value="'+(cfg.qty||1)+'" min="1" inputmode="numeric" oninput="APP.facConf.cfg.qty=parseInt(this.value)||1"></div>'+
-    '</div>'+
-    // Poignée (Skin only)
-    (hasOptHandle?
-      '<div style="margin-bottom:14px"><div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Poignée</div>'+
-      '<div style="display:flex;gap:8px;margin-bottom:8px">'+
-        '<button class="conf-btn'+(cfg.handle&&cfg.handle.has?"":" active")+'" onclick="APP.facConf.cfg.handle.has=false;refreshFacConf()">Sans</button>'+
-        '<button class="conf-btn'+(cfg.handle&&cfg.handle.has?" active":"")+'" onclick="APP.facConf.cfg.handle.has=true;refreshFacConf()">Avec poignée</button>'+
-      '</div>'+
-      (cfg.handle&&cfg.handle.has?
-        '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-          ['U','J'].map(t=>'<button class="conf-btn'+(cfg.handle.type===t?" active":"")+'" onclick="APP.facConf.cfg.handle.type=''+t+'';refreshFacConf()">En '+t+'</button>').join("")+
-          ['Horizontal','Vertical'].map(o=>'<button class="conf-btn'+(cfg.handle.orientation===o?" active":"")+'" onclick="APP.facConf.cfg.handle.orientation=''+o+'';refreshFacConf()">'+o+'</button>').join("")+
-        '</div>':"")+
-      '</div>':
-    (fixedHandle?'<div style="background:var(--teal-bg);color:var(--teal);border-radius:var(--r);padding:8px 12px;font-size:12px;font-weight:600;margin-bottom:14px">✓ Poignée fixe incluse</div>':"")):"")+
-    // Verre
-    '<div style="margin-bottom:14px"><div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Verre</div>'+
-    '<div style="display:flex;gap:8px;margin-bottom:8px">'+
-      '<button class="conf-btn'+(cfg.glass&&cfg.glass.has?"":" active")+'" onclick="APP.facConf.cfg.glass.has=false;refreshFacConf()">Sans verre</button>'+
-      '<button class="conf-btn'+(cfg.glass&&cfg.glass.has?" active":"")+'" onclick="APP.facConf.cfg.glass.has=true;refreshFacConf()">Avec verre</button>'+
-    '</div>'+
-    (cfg.glass&&cfg.glass.has?
-      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
-      GLASS_TYPES.map(t=>'<button class="conf-btn'+(cfg.glass.type===t?" active":"")+'" onclick="APP.facConf.cfg.glass.type=''+t+'';refreshFacConf()">'+t+'</button>').join("")+
-      '</div>':"")+
-    '</div>'+
-    // Charnières info
-    (hinges>0?'<div style="background:var(--surface2);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:14px">'+
-      '<i class="ti ti-tool" style="margin-right:4px"></i><strong>'+hinges+' charnières '+m.hingeType+'</strong> — calculées automatiquement pour '+cfg.height+'mm'+
-    '</div>':"")+
-    // Actions
-    '<div style="display:flex;gap:8px">'+
-      '<button onclick="closeFacConf()" style="padding:10px 20px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface);font-size:13px;font-weight:600;cursor:pointer">Annuler</button>'+
-      '<button onclick="saveFacConf()" style="padding:10px 20px;border-radius:var(--r);border:none;background:#17171A;color:#FFF;font-size:13px;font-weight:600;cursor:pointer"><i class="ti ti-check"></i> Valider</button>'+
-    '</div>'+
-  '</div>';
-}
+  function btn(v,cur,label,onclick){
+    return`<button class="conf-btn${cur===v?" active":""}" onclick="${onclick}">${label}</button>`;
+  }
 
-function setFacModel(model){
-  if(!APP.facConf)return;
-  const old=APP.facConf.cfg;
-  APP.facConf.cfg={...emptyFacCfg(model),width:old.width,height:old.height,color:old.color,colorCustom:old.colorCustom,qty:old.qty};
-  renderFacConf();
-}
-function refreshFacConf(){
-  if(!APP.facConf)return;
-  const prev=document.getElementById("fac-desig-prev");
-  if(prev)prev.textContent=buildFacDesig(APP.facConf.cfg)||"—";
+  el.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);padding:16px;margin-bottom:12px">
+    <div style="background:#17171A;color:#FFF;border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:12px">
+      <div style="font-size:10px;color:#888;margin-bottom:3px;text-transform:uppercase">Désignation</div>
+      <strong>${desig||"—"}</strong>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Modèle</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${Object.entries(FACADE_MODELS).map(([k,v])=>`<button class="conf-btn${cfg.model===k?" active":""}" onclick="FAC_CONF.cfg=emptyFacCfg('${k}');FAC_CONF.cfg.w='${cfg.w}';FAC_CONF.cfg.h='${cfg.h}';FAC_CONF.cfg.color='${cfg.color}';FAC_CONF.cfg.qty=${cfg.qty};renderFacConf()">${v.label}</button>`).join("")}
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px">Profilé : <strong>${m.profil||"—"}</strong> | Charnières : <strong>${m.hingeType||"—"}</strong></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:14px">
+      <div class="form-group">
+        <label class="fl">Largeur (mm) max 600</label>
+        <input type="number" value="${cfg.w||""}" min="1" max="600" inputmode="numeric" placeholder="400"
+          oninput="FAC_CONF.cfg.w=parseInt(this.value)||''" onblur="renderFacConf()">
+      </div>
+      <div class="form-group">
+        <label class="fl">Hauteur (mm) max 2900</label>
+        <input type="number" value="${cfg.h||""}" min="1" max="2900" inputmode="numeric" placeholder="2000"
+          oninput="FAC_CONF.cfg.h=parseInt(this.value)||''" onblur="renderFacConf()">
+      </div>
+      <div class="form-group">
+        <label class="fl">Couleur</label>
+        <select onchange="FAC_CONF.cfg.color=this.value;renderFacConf()">
+          ${COLORS.map(c=>`<option value="${c}"${cfg.color===c?" selected":""}>\${c}</option>`).join("")}
+        </select>
+        ${cfg.color==="Personnalisée"?`<input type="text" value="${esc(cfg.cc||"")}" placeholder="Couleur…" style="margin-top:6px" oninput="FAC_CONF.cfg.cc=this.value;renderFacConf()">`:""}
+      </div>
+      <div class="form-group">
+        <label class="fl">Quantité</label>
+        <input type="number" value="${cfg.qty||1}" min="1" inputmode="numeric" oninput="FAC_CONF.cfg.qty=parseInt(this.value)||1">
+      </div>
+    </div>
+    ${hasOpt?`<div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Poignée</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="conf-btn${cfg.hdl&&cfg.hdl.has?"":" active"}" onclick="FAC_CONF.cfg.hdl.has=false;renderFacConf()">Sans</button>
+        <button class="conf-btn${cfg.hdl&&cfg.hdl.has?" active":""}" onclick="FAC_CONF.cfg.hdl.has=true;renderFacConf()">Avec poignée</button>
+      </div>
+      ${cfg.hdl&&cfg.hdl.has?`<div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${["U","J"].map(t=>`<button class="conf-btn${cfg.hdl.type===t?" active":""}" onclick="FAC_CONF.cfg.hdl.type='${t}';renderFacConf()">En ${t}</button>`).join("")}
+        ${["Horizontal","Vertical"].map(o=>`<button class="conf-btn${cfg.hdl.orient===o?" active":""}" onclick="FAC_CONF.cfg.hdl.orient='${o}';renderFacConf()">${o}</button>`).join("")}
+      </div>`:""}
+    </div>`:(fixed?`<div style="background:var(--teal-bg);color:var(--teal);border-radius:var(--r);padding:8px 12px;font-size:12px;font-weight:600;margin-bottom:14px">✓ Poignée fixe incluse</div>`:"")}
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Verre</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="conf-btn${cfg.glass&&cfg.glass.has?"":" active"}" onclick="FAC_CONF.cfg.glass.has=false;renderFacConf()">Sans verre</button>
+        <button class="conf-btn${cfg.glass&&cfg.glass.has?" active":""}" onclick="FAC_CONF.cfg.glass.has=true;renderFacConf()">Avec verre</button>
+      </div>
+      ${cfg.glass&&cfg.glass.has?`<div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${GLASS_TYPES.map(t=>`<button class="conf-btn${cfg.glass.type===t?" active":""}" onclick="FAC_CONF.cfg.glass.type='${t}';renderFacConf()">${t}</button>`).join("")}
+      </div>`:""}
+    </div>
+    ${hinges>0?`<div style="background:var(--surface2);border-radius:var(--r);padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:14px"><i class="ti ti-tool"></i> <strong>${hinges} charnières ${m.hingeType}</strong> — calculées pour ${cfg.h}mm</div>`:""}
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="closeFac()">Annuler</button>
+      <button class="btn btn-teal" onclick="saveFac()"><i class="ti ti-check"></i> Valider</button>
+    </div>
+  </div>`;
 }
 
 function renderFacList(){
   const el=document.getElementById("fac-list");
-  const foot=document.getElementById("fac-footer");
+  const foot=document.getElementById("fac-foot");
   if(!el)return;
-  if(!APP.facLines.length){el.innerHTML='<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:13px;font-style:italic">Aucune façade ajoutée</div>';if(foot)foot.innerHTML="";return;}
-  el.innerHTML=APP.facLines.map((fl,i)=>'<div class="fac-item" style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">'+
-    '<div style="flex:1;min-width:180px">'+
-      '<div style="font-weight:700;font-size:13px;margin-bottom:3px">'+(i+1)+'. '+esc(fl.designation)+'</div>'+
-      '<div style="font-size:11px;color:var(--text2)">'+fl.qty+' pcs — '+fl.largeur+'×'+fl.dim+'mm</div>'+
-    '</div>'+
-    '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">'+
-      '<button onclick="openFacConf(''+fl.id+'')" style="padding:6px 10px;border-radius:var(--r);border:1px solid var(--border2);background:var(--surface);cursor:pointer;font-size:12px;color:var(--text2)"><i class="ti ti-pencil"></i></button>'+
-      '<button onclick="deleteFac(''+fl.id+'')" style="padding:6px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;cursor:pointer;font-size:12px;color:#A32D2D"><i class="ti ti-trash"></i></button>'+
-    '</div>'+
-  '</div>').join("");
-  const totalFac=APP.facLines.reduce((s,f)=>s+(parseInt(f.qty)||0),0);
-  if(foot)foot.innerHTML=totalFac>0?'<div style="display:flex;justify-content:space-between;padding:10px 12px;background:var(--surface2);border-radius:var(--r);margin-top:8px;font-size:13px">'+
-    '<span style="font-weight:600;color:var(--text2)"><i class="ti ti-layout-columns" style="margin-right:4px"></i>Total façades</span>'+
-    '<span style="font-weight:700;color:var(--purple)">'+totalFac+' pcs</span></div>':"";
+  if(!FAC_LINES.length){el.innerHTML='<div style="color:var(--text3);font-style:italic;font-size:13px;padding:8px 0">Aucune façade ajoutée</div>';if(foot)foot.innerHTML="";return;}
+  el.innerHTML=FAC_LINES.map((fl,i)=>`<div class="fac-item">
+    <div style="flex:1;min-width:160px">
+      <div style="font-weight:700;font-size:13px">${i+1}. ${esc(fl.designation)}</div>
+      <div style="font-size:11px;color:var(--text2)">${fl.qty} pcs — ${fl.largeur}×${fl.dim}mm</div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn" style="padding:5px 10px;font-size:12px" onclick="openFac('${fl.id}')"><i class="ti ti-pencil"></i></button>
+      <button class="btn btn-red" style="padding:5px 10px;font-size:12px" onclick="delFac('${fl.id}')"><i class="ti ti-trash"></i></button>
+    </div>
+  </div>`).join("");
+  const tot=FAC_LINES.reduce((s,f)=>s+(parseInt(f.qty)||0),0);
+  if(foot)foot.innerHTML=tot>0?`<div style="display:flex;justify-content:space-between;padding:10px 12px;background:var(--surface2);border-radius:var(--r);margin-top:8px;font-size:13px">
+    <span style="font-weight:600;color:var(--text2)">Total façades</span>
+    <span style="font-weight:700;color:var(--purple)">${tot} pcs</span>
+  </div>`:"";
 }
-function deleteFac(id){APP.facLines=APP.facLines.filter(f=>f.id!==id);renderFacList();}
 
 // ── SUBMIT ──
 function getPoigLines(){
-  const isMob=window.innerWidth<=640;
-  if(isMob){return APP.poigLines.filter(l=>l.ref&&parseFloat(l.qty)>0).map(l=>({ref:l.ref,designation:l.desig||buildPoigDesig(l.ref,l.dim,l.color,l.colorCustom),dim:l.dim,color:l.color==="Personnalisée"?l.colorCustom:l.color,qty:l.qty,unit:"pqt 25 pcs",nbPcs:(parseFloat(l.qty)||0)*25,prixTarif:l.prixTarif||""}))}
-  // Desktop: read from DOM
-  return APP.poigLines.filter(l=>{
-    const r=document.getElementById("dr-"+l.id);
-    const q=document.getElementById("dq-"+l.id);
-    return r&&r.value&&q&&parseFloat(q.value)>0;
-  }).map(l=>{
-    const r=document.getElementById("dr-"+l.id)||{value:l.ref};
-    const q=document.getElementById("dq-"+l.id)||{value:l.qty};
-    return{ref:r.value,designation:l.desig,dim:l.dim,color:l.color==="Personnalisée"?l.colorCustom:l.color,qty:q.value,unit:"pqt 25 pcs",nbPcs:(parseFloat(q.value)||0)*25,prixTarif:l.prixTarif||""};
-  });
+  const lines=[];
+  for(let i=1;i<=NLINES;i++){
+    const ref=document.getElementById("pr"+i)?.value||"";
+    const qty=parseFloat(document.getElementById("pq"+i)?.value)||0;
+    if(!ref||!qty)continue;
+    const dim=document.getElementById("pd"+i)?.value||"";
+    const color=document.getElementById("pc"+i)?.value||"";
+    const cc=document.getElementById("pcc"+i)?.value||"";
+    const c=color==="Personnalisée"?cc:color;
+    const nb=qty*25;
+    const pt=getPT(ref,dim);
+    lines.push({ref,designation:poigDesig(ref,dim,color,cc),dim,color:c,qty,unit:"pqt 25 pcs",nbPcs:nb,prixTarif:pt!==null?pt:""});
+  }
+  return lines;
 }
 
-function submitCommande(){
+function submitCmd(){
   const client=document.getElementById("c-client").value.trim();
   const contact=document.getElementById("c-contact").value.trim();
   const mobile=document.getElementById("c-mobile").value.trim();
-  const errCoord=document.getElementById("err-coord");
-  const errLines=document.getElementById("err-lines");
-  errCoord.style.display="none";errLines.style.display="none";
-  if(!client||!contact||!mobile){errCoord.style.display="block";return;}
-  const poigLines=getPoigLines();
-  const facLines=APP.facLines.filter(f=>f.ref&&f.qty>0).map(f=>({...f.cfg?{}:{},ref:f.ref,designation:f.designation,dim:f.dim,largeur:f.largeur,color:f.color,qty:f.qty,unit:"pcs",nbPcs:parseInt(f.qty)||0}));
-  const lines=[...poigLines,...facLines];
-  if(!lines.length){errLines.style.display="block";return;}
-  const btn=document.getElementById("btn-submit");
+  document.getElementById("err-coord").style.display="none";
+  document.getElementById("err-lines").style.display="none";
+  if(!client||!contact||!mobile){document.getElementById("err-coord").style.display="block";return;}
+  const poigL=getPoigLines();
+  const facL=FAC_LINES.filter(f=>f.qty>0).map(f=>({ref:f.ref,designation:f.designation,dim:f.dim,largeur:f.largeur,color:f.color,qty:f.qty,unit:"pcs",nbPcs:f.qty}));
+  const lines=[...poigL,...facL];
+  if(!lines.length){document.getElementById("err-lines").style.display="block";return;}
+  const btn=document.getElementById("btn-send");
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Envoi en cours…';
   const order={id:"WEB-"+Date.now(),source:"WEB_CLIENT",date:todayStr(),createdAt:new Date().toISOString(),client,contact,mobile,lines,status:"EN_ATTENTE"};
   db.ref("pending_orders/"+order.id).set(order).then(()=>{
-    sendSlackNotif(order);
+    sendNotif(order);
     document.getElementById("form-area").style.display="none";
     document.getElementById("success-area").style.display="block";
   }).catch(err=>{
-    alert("Erreur lors de l\'envoi : "+err.message);
-    btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Envoyer ma demande de commande';
+    alert("Erreur : "+err.message);
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Envoyer ma demande';
   });
 }
 
-function resetForm(){
-  APP={poigLines:Array.from({length:NLINES},(_,i)=>({id:i+1,ref:"",dim:"",color:"",colorCustom:"",qty:"",desig:"",prixTarif:""})),facLines:[],facConf:null};
-  renderPoigDesktop();renderPoigMobile();renderFacConf();renderFacList();
+function resetCmd(){
   document.getElementById("c-client").value="";
   document.getElementById("c-contact").value="";
   document.getElementById("c-mobile").value="";
+  FAC_LINES=[];FAC_CONF=null;
+  buildPoigTable();renderFacConf();renderFacList();
   document.getElementById("form-area").style.display="block";
   document.getElementById("success-area").style.display="none";
-  const btn=document.getElementById("btn-submit");
-  btn.disabled=false;btn.innerHTML='<i class="ti ti-send"></i> Envoyer ma demande de commande';
+  document.getElementById("btn-send").disabled=false;
+  document.getElementById("btn-send").innerHTML='<i class="ti ti-send"></i> Envoyer ma demande';
 }
 
-
-let SLACK_WEBHOOK="";
-function sendSlackNotif(order){
-  const lines=(order.lines||[]);
-  const totalP=lines.filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||(parseFloat(l.qty)||0)*25),0);
-  const totalF=lines.filter(l=>l.ref&&!l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||parseFloat(l.qty)||0),0);
-  const articlesSummary=[];
-  if(totalP>0)articlesSummary.push("*"+totalP.toLocaleString("fr-FR")+" pcs* poignées");
-  if(totalF>0)articlesSummary.push("*"+totalF.toLocaleString("fr-FR")+" pcs* façades");
-  const detailLines=lines.slice(0,5).map(l=>"• "+(l.designation||l.ref)+" — "+(l.nbPcs||l.qty)+" pcs").join("\n")+(lines.length>5?"\n• … et "+(lines.length-5)+" autre(s)":"");
+function sendNotif(order){
+  if(!SLACK_WEBHOOK)return;
+  const totalP=order.lines.filter(l=>l.ref&&l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||0),0);
+  const totalF=order.lines.filter(l=>l.ref&&!l.ref.startsWith("P-")).reduce((s,l)=>s+(parseFloat(l.nbPcs)||parseFloat(l.qty)||0),0);
+  const summary=[];
+  if(totalP>0)summary.push("*"+totalP.toLocaleString("fr-FR")+" pcs* poignées");
+  if(totalF>0)summary.push("*"+totalF.toLocaleString("fr-FR")+" pcs* façades");
   const msg={blocks:[
     {type:"header",text:{type:"plain_text",text:"🌐 Nouvelle demande web — "+order.client,emoji:true}},
     {type:"section",fields:[
       {type:"mrkdwn",text:"*Client :*\n"+order.client},
       {type:"mrkdwn",text:"*Contact :*\n"+(order.contact||"—")},
       {type:"mrkdwn",text:"*Mobile :*\n"+(order.mobile||"—")},
-      {type:"mrkdwn",text:"*Source :*\nFormulaire web"},
+      {type:"mrkdwn",text:"*Articles :*\n"+(summary.join(" — ")||"—")},
     ]},
-    ...(articlesSummary.length?[{type:"section",text:{type:"mrkdwn",text:"📦 "+articlesSummary.join(" — ")}}]:[]),
-    ...(detailLines?[{type:"section",text:{type:"mrkdwn",text:detailLines}}]:[]),
     {type:"divider"},
     {type:"context",elements:[{type:"mrkdwn",text:"UND Atelier — "+new Date().toLocaleString("fr-FR")}]}
   ]};
-  fetch(SLACK_WEBHOOK,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(msg)})
-    .catch(e=>console.warn("Slack error:",e));
+  fetch(SLACK_WEBHOOK,{method:"POST",mode:"no-cors",body:JSON.stringify(msg)}).catch(()=>{});
 }
-// ── INIT ──
-// Load Slack webhook from Firebase config
-db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
 
-renderPoigDesktop();
-renderPoigMobile();
+// ── INIT ──
+buildPoigTable();
 renderFacList();
 </script>
 </body>

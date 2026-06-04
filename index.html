@@ -1985,13 +1985,14 @@ function renderPlanning(){
       ${wd.map(d=>{
         const ds=isoDate(d);const key=ws.id+"_"+ds;
         const cell=S.plan[key];const isT=ds===today;const isSel=sel&&sel.key===key;
-        return`<td class="pcell${isSel?" sel":""}${isT?" today-c":""}" onclick="planClick('${ws.id}','${ds}','${key}','${esc(fmtLong(d))}')">
-          ${cell?`<div class="cell-of">${cell.ofId}</div>${cell.hours?`<div class="cell-h">${cell.hours}h</div>`:""}${cell.notes?`<div class="cell-note">${esc(cell.notes)}</div>`:""}`:""}
+        return`<td class="pcell${isSel?" sel":""}${isT?" today-c":""}${cell&&cell.proposed?" proposed":""}" onclick="planClick('${ws.id}','${ds}','${key}','${esc(fmtLong(d))}')">
+          ${cell?`<div class="cell-of" style="font-size:10px;${cell.proposed?"color:var(--teal);font-style:italic":""}">${cell.ofId}</div>${cell.hours?`<div class="cell-h">${cell.hours}h</div>`:""}${cell.notes?`<div class="cell-note">${esc(cell.notes)}</div>`:""}`:""}
         </td>`;
       }).join("")}
     </tr>`).join("")}
   </tbody></table></div>
-  <p style="font-size:11px;color:var(--text3);margin-top:8px">Cliquez sur une case pour affecter ou modifier un OF.</p>`;
+  <p style="font-size:11px;color:var(--text3);margin-top:8px">Cliquez sur une case pour affecter ou modifier un OF. <em>Italique vert = proposition automatique.</em></p>
+  <p style="font-size:10px;color:var(--text3)">Plan entries cette semaine : ${Object.keys(S.plan||{}).filter(k=>wd.some(d=>k.endsWith(isoDate(d)))).length}</p>`;
   return h;
 }
 
