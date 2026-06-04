@@ -1774,52 +1774,77 @@ function saveStandards(propose){
 }
 
 function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
+  // Map gamme poste names to WS ids
+  const POSTE_MAP={
+    "Découpe presse":"press60","Reprise Presse":"press60",
+    "Ébavurage":"ebav1","Ébavurage 1":"ebav1","Ébavurage 2":"ebav2",
+    "Coupe":"coupe_auto","Coupe auto":"coupe_auto","Coupe automatique":"coupe_auto",
+    "Coupe semi-auto":"coupe_semi","Coupe 45°":"coupe45",
+    "Perçage":"perc_tar","Perçage/Taraudage":"perc_tar","Taraudage":"perc_tar",
+    "Peinture":"peinture","Ligne peinture":"peinture",
+    "CNC 3m":"cnc3m","CNC 1,5m":"cnc15m","CNC":"cnc3m",
+    "Assemblage façades":"asm_fac","Assemblage miroir":"asm_mir",
+    "Emballage":"press60", // default to press60 for packaging
+    "Injection":"inj125a",
+  };
+
   const slots=[];
   let currentDate=new Date(startDate+"T00:00:00");
-  const minPerDay=(parseFloat(hpj)||8)*60;
+  const hpjN=parseFloat(hpj)||8;
+  const minPerDay=hpjN*60;
 
   postes.forEach(poste=>{
     const tUnit=parseFloat(stdData[poste])||0;
-    if(!tUnit){slots.push({poste,pfId,ref,start:null,note:"Temps non saisi"});return;}
+    const wsId=POSTE_MAP[poste]||null;
+    if(!tUnit||!wsId){
+      slots.push({poste,wsId:null,start:null,note:!tUnit?"Temps non saisi":"Poste non trouvé"});
+      return;
+    }
     const totalMin=tUnit*totalPcs;
     const nbDays=Math.max(1,Math.ceil(totalMin/minPerDay));
     const startStr=currentDate.toISOString().split("T")[0];
+
+    // Add one planning entry per occupied day
+    let d=new Date(currentDate);
     let daysAdded=0;
     while(daysAdded<nbDays){
-      const dow=currentDate.getDay();
-      if(dow!==0&&dow!==6)daysAdded++;
-      if(daysAdded<nbDays)currentDate.setDate(currentDate.getDate()+1);
+      const dow=d.getDay();
+      if(dow!==0&&dow!==6){
+        const ds=d.toISOString().split("T")[0];
+        const key=wsId+"_"+ds;
+        const hoursThisDay=Math.min(hpjN,(totalMin-daysAdded*minPerDay)/60);
+        if(!S.plan[key]||S.plan[key].proposed){
+          S.plan[key]={ofId:pfId,hours:Math.round(hoursThisDay*10)/10,notes:ref+" (proposition)",proposed:true};
+        }
+        daysAdded++;
+      }
+      d.setDate(d.getDate()+1);
     }
-    const endStr=currentDate.toISOString().split("T")[0];
-    slots.push({poste,pfId,ref,start:startStr,end:endStr,totalMin:Math.round(totalMin),nbDays,tUnit});
-    do{currentDate.setDate(currentDate.getDate()+1);}while(currentDate.getDay()===0||currentDate.getDay()===6);
+    const endStr=d.toISOString().split("T")[0];
+    slots.push({poste,wsId,start:startStr,end:endStr,totalMin:Math.round(totalMin),nbDays,tUnit});
+    // Next poste starts after this one
+    currentDate=new Date(d);
+    while(currentDate.getDay()===0||currentDate.getDay()===6){
+      currentDate.setDate(currentDate.getDate()+1);
+    }
   });
 
-  // Save proposal to OF (search in S.ofs, create entry if missing)
-  const pfIdx=S.ofs.findIndex(o=>o.id===pfId);
-  if(pfIdx>=0){
-    S.ofs[pfIdx]={...S.ofs[pfIdx],planningProposal:slots};
-  }
-  if(db)db.ref("ofs/"+pfId+"/planningProposal").set(slots);
-
-  // Also add slots to S.plan so they appear in the planning grid
-  slots.filter(s=>s.start).forEach(s=>{
-    const week=getWeekKey(s.start);
-    if(!S.plan[week])S.plan[week]={};
-    if(!S.plan[week][s.poste])S.plan[week][s.poste]={};
-    S.plan[week][s.poste][pfId]={pfId,ref,start:s.start,end:s.end,totalMin:s.totalMin,proposed:true};
-  });
+  // Save plan to Firebase
   if(db)db.ref("plan").set(S.plan);
 
-  S.standardsForm=null;
+  // Save proposal to OF
+  const pfIdx=S.ofs.findIndex(o=>o.id===pfId);
+  if(pfIdx>=0)S.ofs[pfIdx]={...S.ofs[pfIdx],planningProposal:slots};
+  if(db)db.ref("ofs/"+pfId+"/planningProposal").set(slots);
 
-  // Show summary and navigate to planning
   S.standardsForm=null;
-  const summary=slots.map(s=>s.start?
-    `${s.poste} : ${s.start} → ${s.end} (${s.nbDays}j / ${s.totalMin} min)`:
-    `${s.poste} : ${s.note||"non planifié"}`
-  ).join(", ");
-  console.log("Planning proposé pour "+pfId+": "+summary);
+  // Navigate to planning at the right week
+  if(slots[0]&&slots[0].start){
+    const startD=new Date(slots[0].start+"T00:00:00");
+    const today=new Date();today.setHours(0,0,0,0);
+    const diffDays=Math.round((startD-today)/86400000);
+    S.weekOff=Math.floor(diffDays/7);
+  }
   setTab("planning");
 }
 
