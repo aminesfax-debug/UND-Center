@@ -728,22 +728,28 @@ function calcOrderCA(o){
 }
 
 function stats(){
-  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
-  const thisMonth=new Date().toISOString().slice(0,7);
-  const filterMonth=S.dashFilter||"mois";
-  const filteredOrders=S.orders.filter(o=>o.status!=="ANNULÉ"&&(filterMonth==="tout"||( o.date&&o.date.startsWith(thisMonth))));
-  const totalPoigneesMois=filteredOrders.reduce((s,o)=>s+toA(o.lines).filter(l=>l&&l.ref&&l.ref.startsWith("P-")).reduce((s2,l)=>s2+nbPcsFromLine(l),0),0);
-  const totalFacadesMois=filteredOrders.reduce((s,o)=>s+toA(o.lines).filter(l=>l&&l.ref&&!l.ref.startsWith("P-")).reduce((s2,l)=>s2+nbPcsFromLine(l),0),0);
-  const caMois=filteredOrders.reduce((s,o)=>s+calcOrderCA(o),0);
-  return{
-    total:S.orders.length,
-    enCours:S.orders.filter(o=>["LANCÉ","EN_COURS"].includes(o.status)).length,
-    attente:S.orders.filter(o=>o.status==="EN_ATTENTE").length,
-    retard:lateOrders().length,
-    totalPoigneesMois,totalFacadesMois,caMois,
-    moisLabel:filterMonth==="tout"?"Tout":new Date().toLocaleDateString("fr-FR",{month:"long",year:"numeric"}),
-    filterMonth,
-  };
+  try{
+    const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+    const thisMonth=new Date().toISOString().slice(0,7);
+    const filterMonth=S.dashFilter||"mois";
+    const orders=S.orders||[];
+    const filteredOrders=orders.filter(o=>o&&o.status!=="ANNULÉ"&&(filterMonth==="tout"||(o.date&&o.date.startsWith(thisMonth))));
+    const totalPoigneesMois=filteredOrders.reduce((s,o)=>s+toA(o.lines).filter(l=>l&&l.ref&&l.ref.startsWith("P-")).reduce((s2,l)=>s2+nbPcsFromLine(l),0),0);
+    const totalFacadesMois=filteredOrders.reduce((s,o)=>s+toA(o.lines).filter(l=>l&&l.ref&&!l.ref.startsWith("P-")).reduce((s2,l)=>s2+nbPcsFromLine(l),0),0);
+    const caMois=filteredOrders.reduce((s,o)=>{try{return s+calcOrderCA(o);}catch(e){return s;}},0);
+    return{
+      total:orders.length,
+      enCours:orders.filter(o=>o&&["LANCÉ","EN_COURS"].includes(o.status)).length,
+      attente:orders.filter(o=>o&&o.status==="EN_ATTENTE").length,
+      retard:lateOrders().length,
+      totalPoigneesMois,totalFacadesMois,caMois,
+      moisLabel:filterMonth==="tout"?"Tout":new Date().toLocaleDateString("fr-FR",{month:"long",year:"numeric"}),
+      filterMonth,
+    };
+  }catch(e){
+    console.error("stats() error:",e);
+    return{total:0,enCours:0,attente:0,retard:0,totalPoigneesMois:0,totalFacadesMois:0,caMois:0,moisLabel:"—",filterMonth:"mois"};
+  }
 }
 function refsOpts(cur){return`<option value="">—</option>`+REFS.map(r=>`<option value="${r}"${cur===r?" selected":""}>${r}</option>`).join("");}
 function statusOpts(cur){return Object.entries(STATUSES).map(([k,v])=>`<option value="${k}"${cur===k?" selected":""}>${v.label}</option>`).join("");}
@@ -3062,11 +3068,14 @@ document.getElementById("content").innerHTML=`
 loadAll().then(()=>{
   updateBadges();
   render();
-  // Load standards and webhook config asynchronously (non-blocking)
   if(db){
     db.ref("standards").once("value").then(s=>{S.standards=s.val()||{};}).catch(()=>{});
     db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
   }
+}).catch(err=>{
+  console.error("loadAll failed:",err);
+  document.getElementById("content").innerHTML=
+    '<div style="padding:2rem;color:#A32D2D;font-weight:600">⚠️ Erreur de chargement : '+String(err)+'</div>';
 });
 </script>
 </body>
