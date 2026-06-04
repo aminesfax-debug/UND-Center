@@ -568,12 +568,6 @@ async function loadAll(){
       S.bons=toArr(bons);
       S.ofs=toArr(ofs);
       S.pendingOrders=pending?Object.values(pending).map(o=>({...o,lines:toArr(o.lines)})):[];
-      // Load time standards
-      const stdSnap=await fbRead("standards").catch(()=>null);
-      S.standards=stdSnap||{};
-      // Load Slack webhook from Firebase config
-      const cfgSnap=await fbRead("config/slackWebhook").catch(()=>null);
-      if(cfgSnap)SLACK_WEBHOOK=cfgSnap;
     }catch(e){
       console.warn("Firebase load error:",e);
       S.orders=ls_get(K_ORDERS)||[];
@@ -3022,6 +3016,7 @@ function promptSlackWebhook(){
   if(url&&url.startsWith("https://hooks.slack.com/"))setSlackWebhook(url);
   else if(url)alert("URL invalide. Elle doit commencer par https://hooks.slack.com/");
 }
+function setSlackWebhook(url){
   SLACK_WEBHOOK=url.trim();
   if(db)db.ref("config/slackWebhook").set(SLACK_WEBHOOK);
   alert("✅ Webhook Slack enregistré.");
@@ -3053,6 +3048,11 @@ document.getElementById("content").innerHTML=`
 loadAll().then(()=>{
   updateBadges();
   render();
+  // Load standards and webhook config asynchronously (non-blocking)
+  if(db){
+    db.ref("standards").once("value").then(s=>{S.standards=s.val()||{};}).catch(()=>{});
+    db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
+  }
 });
 </script>
 </body>
