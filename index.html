@@ -1838,14 +1838,22 @@ function saveStandards(propose){
     const v=parseFloat(el?el.value:0)||0;
     if(v>0)stdData[poste]=v;
   });
-  // Save to Firebase
   S.standards[ref]=stdData;
   if(db)db.ref("standards/"+ref).set(stdData);
 
   if(propose){
-    const startDate=document.getElementById("std-start-date")?.value||todayStr();
-    const hpj=parseFloat(document.getElementById("std-hpj")?.value)||8;
-    proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj);
+    try{
+      const startDateEl=document.getElementById("std-start-date");
+      const hpjEl=document.getElementById("std-hpj");
+      const startDate=startDateEl?startDateEl.value:todayStr();
+      const hpj=hpjEl?parseFloat(hpjEl.value)||8:8;
+      if(!startDate){alert("Veuillez choisir une date de début.");return;}
+      proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj);
+    }catch(err){
+      console.error("proposePlanning error:",err);
+      alert("Erreur planning : "+String(err)+"\n\nLes temps ont été enregistrés. Vous pouvez planifier manuellement.");
+      S.standardsForm=null;render();
+    }
   } else {
     S.standardsForm=null;
     alert("✅ Temps standards enregistrés pour "+ref);
@@ -1854,6 +1862,7 @@ function saveStandards(propose){
 }
 
 function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
+  if(!S.plan||typeof S.plan!=="object")S.plan={};
   // Map gamme poste names to WS ids
   const POSTE_MAP={
     "Découpe presse":"press60","Reprise Presse":"press60",
