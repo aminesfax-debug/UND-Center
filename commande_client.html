@@ -215,9 +215,30 @@ function facDesig(cfg){
     parts.push(h);
   }
   if(cfg.glass&&cfg.glass.has&&cfg.glass.type)parts.push("Verre "+cfg.glass.type);
+  if(cfg.hingesSupplied===false)parts.push("Sans charnières");
   return parts.join(" — ");
 }
-function emptyFacCfg(model){return{model:model||"F-500",w:"",h:"",color:"",cc:"",hdl:{has:false,type:"U",orient:"Horizontal"},glass:{has:false,type:"Transparent"},qty:1};}
+function emptyFacCfg(model){return{model:model||"F-500",w:"",h:"",color:"",cc:"",hdl:{has:false,type:"U",orient:"Horizontal"},glass:{has:false,type:"Transparent"},hingesSupplied:true,hingePositions:[],qty:1};}
+function calcHingePos(count,h){
+  if(!count||!h)return[];
+  var first=135,last=h-135;
+  if(count===1)return[Math.round(h/2)];
+  if(count===2)return[first,last];
+  var pos=[first];var step=(last-first)/(count-1);
+  for(var k=1;k<count-1;k++)pos.push(Math.round(first+k*step));
+  pos.push(last);return pos;
+}
+function refreshFacHinges(){
+  if(!FAC_CONF)return;
+  var h=parseInt(FAC_CONF.cfg.h)||0;
+  var cnt=h>0?(h<=1000?2:h<=1600?3:h<=2400?4:5):0;
+  FAC_CONF.cfg.hingePositions=calcHingePos(cnt,h);
+  renderFacConf();
+}
+function updateHingePos(idx,val){
+  if(!FAC_CONF)return;
+  FAC_CONF.cfg.hingePositions[idx]=parseInt(val)||0;
+}
 
 // ── POIGNÉES TABLE ──
 function buildPoigTable(){
@@ -341,7 +362,7 @@ function renderFacConf(){
       <div class="form-group">
         <label class="fl">Hauteur (mm) max 2900</label>
         <input type="number" value="${cfg.h||""}" min="1" max="2900" inputmode="numeric" placeholder="2000"
-          oninput="FAC_CONF.cfg.h=parseInt(this.value)||''" onblur="renderFacConf()">
+          oninput="FAC_CONF.cfg.h=parseInt(this.value)||''" onblur="refreshFacHinges()">
       </div>
       <div class="form-group">
         <label class="fl">Couleur</label>
