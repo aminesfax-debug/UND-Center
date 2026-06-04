@@ -3160,6 +3160,7 @@ function toggleMlc(lid){
     }
   }
 }
+function promptSlackWebhook(){
   const current=SLACK_WEBHOOK?"Webhook actuel configuré.":"⚠️ Aucun webhook configuré.";
   const url=prompt(current+"\n\nCollez la nouvelle URL webhook Slack :\n(https://hooks.slack.com/services/...)","");
   if(url&&url.startsWith("https://hooks.slack.com/"))setSlackWebhook(url);
