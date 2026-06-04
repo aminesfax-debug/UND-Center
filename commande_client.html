@@ -397,17 +397,31 @@ function renderFacConf(){
         ${GLASS_TYPES.map(t=>`<button class="conf-btn${cfg.glass.type===t?" active":""}" onclick="FAC_CONF.cfg.glass.type='${t}';renderFacConf()">${t}</button>`).join("")}
       </div>`:""}
     </div>
-    ${hinges>0?`<div style="background:var(--surface2);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--text2);margin-bottom:14px">
-      <i class="ti ti-tool"></i> <strong>${hinges} charnières ${m.hingeType}</strong> — calculées pour ${cfg.h}mm
-      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+    ${hinges>0?`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);padding:14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600"><i class="ti ti-tool"></i> ${hinges} charnières ${m.hingeType} — ${cfg.h}mm</div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 12px;border-radius:var(--r);border:1px solid ${cfg.hingesSupplied?"#1D9E75":"var(--border)"};background:${cfg.hingesSupplied?"var(--teal-bg)":"#FFF"}">
+          <input type="checkbox" ${cfg.hingesSupplied?"checked":""} onchange="FAC_CONF.cfg.hingesSupplied=this.checked;renderFacConf()" style="width:16px;height:16px;cursor:pointer">
+          <span style="font-size:12px;font-weight:600;color:${cfg.hingesSupplied?"var(--teal)":"var(--text2)"}">Charnières fournies</span>
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">
         ${(function(){
-          var pos=[];var h=parseInt(cfg.h);
-          if(h>0){
-            var first=135,last=h-135;
-            if(hinges===1){pos=[Math.round(h/2)];}
-            else{pos=[first];var step=(last-first)/(hinges-1);for(var k=1;k<hinges-1;k++)pos.push(Math.round(first+k*step));pos.push(last);}
-          }
-          return pos.map(function(p,k){return'<span style="background:#FFF;border:1px solid var(--border);border-radius:var(--r);padding:3px 10px;font-size:11px;font-weight:600">Ch.'+(k+1)+' : '+p+'mm</span>';}).join('');
+          var positions=cfg.hingePositions&&cfg.hingePositions.length===hinges?cfg.hingePositions:(function(){
+            var h2=parseInt(cfg.h),f=135,l=h2-135,p=[f];
+            if(hinges===1)return[Math.round(h2/2)];
+            if(hinges===2)return[f,l];
+            var s=(l-f)/(hinges-1);
+            for(var k=1;k<hinges-1;k++)p.push(Math.round(f+k*s));
+            p.push(l);return p;
+          })();
+          if(!cfg.hingePositions||cfg.hingePositions.length!==hinges)FAC_CONF.cfg.hingePositions=positions;
+          return positions.map(function(pos,k){
+            return '<div><label style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">Charnière '+(k+1)+'</label>'+
+              '<div style="display:flex;align-items:center;gap:6px">'+
+              '<input type="number" value="'+pos+'" min="0" max="'+cfg.h+'" style="font-size:14px;padding:7px 10px;width:100%;border:1px solid var(--border2);border-radius:var(--r)" oninput="updateHingePos('+k+',this.value)">'+
+              '<span style="font-size:11px;color:var(--text2);white-space:nowrap">mm</span></div></div>';
+          }).join('');
         })()}
       </div>
     </div>`:""}
