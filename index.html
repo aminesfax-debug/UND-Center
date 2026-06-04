@@ -473,11 +473,55 @@ const GAMMES={
     "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
     "Semi-Automatique":["Coupe","Reprise Presse","Perçage","Ébavurage","Peinture","Emballage"]
   },
+  "P-231":{
+    "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
+    "Semi-Automatique":["Coupe","Reprise Presse","Perçage","Ébavurage","Peinture","Emballage"]
+  },
+  "P-234":{
+    "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
+    "Semi-Automatique":["Coupe","Reprise Presse","Perçage","Ébavurage","Peinture","Emballage"]
+  },
   "P-239":{
     "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
     "Semi-Automatique":["Coupe","Reprise Presse","Peinture","Emballage"]
-  }
+  },
+  "P-241":{
+    "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
+    "Semi-Automatique":["Coupe","Reprise Presse","Peinture","Emballage"]
+  },
+  "P-204":{
+    "Standard":["Coupe","Perçage/Taraudage","Ébavurage","Peinture","Emballage"]
+  },
+  "P-210":{
+    "Standard":["Coupe","Perçage/Taraudage","Ébavurage","Peinture","Emballage"]
+  },
+  "P-229":{
+    "Standard":["Coupe","Ébavurage","Peinture","Emballage"]
+  },
+  "P-235":{
+    "Standard":["Coupe","Ébavurage","Peinture","Emballage"]
+  },
+  "P-236":{
+    "Standard":["Coupe","Ébavurage","Peinture","Emballage"]
+  },
+  "P-240":{
+    "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
+    "Semi-Automatique":["Coupe","Reprise Presse","Peinture","Emballage"]
+  },
+  "P-242":{
+    "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
+    "Semi-Automatique":["Coupe","Reprise Presse","Peinture","Emballage"]
+  },
+  "F-500":{"Standard":["Coupe 45°","Assemblage façades","Peinture","Emballage"]},
+  "F-501":{"Standard":["Coupe 45°","Assemblage façades","Peinture","Emballage"]},
+  "F-502":{"Standard":["Coupe 45°","Assemblage façades","Peinture","Emballage"]},
+  "F-503":{"Standard":["Coupe 45°","Assemblage façades","Peinture","Emballage"]},
+  "F-505":{"Standard":["Coupe 45°","Assemblage façades","Emballage"]},
+  "SKIN-MINI":{"Standard":["Coupe 45°","Assemblage façades","Peinture","Emballage"]},
+  "SKIN-MAXI":{"Standard":["Coupe 45°","Assemblage façades","Peinture","Emballage"]},
 };
+// Default postes for any ref not in GAMMES
+const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
 let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null};
 
@@ -1666,7 +1710,28 @@ function lancerOFRef(ref){
 // ═══════════════════════════════════════════
 
 function renderStandardsForm(){
-  const{pfId,ref,postes,totalPcs,gamme}=S.standardsForm;
+  const{pfId,ref,postes:postesInit,totalPcs,gamme:gammeInit}=S.standardsForm;
+
+  // If no gamme selected but GAMMES exist, allow selection here
+  const hasGammes=GAMMES&&GAMMES[ref]&&Object.keys(GAMMES[ref]).length>0;
+  let gamme=S.standardsForm.gamme||gammeInit||"";
+  let postes=postesInit||[];
+
+  // Auto-pick first gamme if none selected
+  if(hasGammes&&!gamme){
+    gamme=Object.keys(GAMMES[ref])[0];
+    S.standardsForm.gamme=gamme;
+  }
+  if(hasGammes&&gamme&&(!postes||!postes.length)){
+    postes=GAMMES[ref][gamme]||[];
+    S.standardsForm.postes=postes;
+  }
+  // Fallback: use DEFAULT_POSTES if ref not in GAMMES
+  if(!hasGammes&&(!postes||!postes.length)){
+    postes=DEFAULT_POSTES;
+    S.standardsForm.postes=postes;
+  }
+
   const existingStd=S.standards[ref]||{};
   const isNew=Object.keys(existingStd).length===0;
 
@@ -1685,10 +1750,23 @@ function renderStandardsForm(){
   <div class="card" style="margin-bottom:16px">
     <div class="card-title"><i class="ti ti-clock"></i>Temps unitaire par poste</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:14px">
-      OF : <strong>${pfId}</strong> — Gamme : <strong>${gamme||"—"}</strong> — <strong>${totalPcs.toLocaleString("fr-FR")} pcs</strong>
+      OF : <strong>${pfId}</strong> — <strong>${totalPcs.toLocaleString("fr-FR")} pcs</strong>
     </div>
+
+    ${hasGammes?`<div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Gamme opératoire</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${Object.keys(GAMMES[ref]).map(gm=>`
+        <button onclick="S.standardsForm.gamme='${gm}';S.standardsForm.postes=GAMMES['${ref}']['${gm}'];render()"
+          style="padding:8px 16px;border-radius:var(--r);border:2px solid ${gamme===gm?"#17171A":"var(--border)"};
+          background:${gamme===gm?"#17171A":"var(--surface)"};color:${gamme===gm?"#FFF":"var(--text)"};
+          font-size:13px;font-weight:600;cursor:pointer">${gm}</button>`).join("")}
+      </div>
+    </div>`:""}
+
     <div style="display:flex;flex-direction:column;gap:10px" id="std-fields">
-      ${postes.map((poste,i)=>{
+      ${postes.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px">Sélectionnez une gamme ci-dessus pour voir les postes.</div>`:
+      postes.map((poste,i)=>{
         const existing=existingStd[poste]||"";
         const dureeMin=existing?(parseFloat(existing)*totalPcs).toFixed(0):"—";
         const dureeH=existing?(parseFloat(existing)*totalPcs/60).toFixed(1):"—";
@@ -1751,7 +1829,9 @@ function updateStdDur(i,val,totalPcs){
 }
 
 function saveStandards(propose){
-  const{pfId,ref,postes,totalPcs}=S.standardsForm;
+  const{pfId,ref,totalPcs}=S.standardsForm;
+  const postes=S.standardsForm.postes||[];
+  if(!postes.length){alert("Veuillez sélectionner une gamme et saisir les temps.");return;}
   const stdData={};
   postes.forEach((poste,i)=>{
     const el=document.getElementById("std-"+i);
