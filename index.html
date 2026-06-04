@@ -3347,8 +3347,7 @@ function renderParamsStandards(){
 function addGamme(ref){
   const name=prompt("Nom de la nouvelle gamme (ex: Semi-Automatique) :");
   if(!name)return;
-  const postesStr=prompt("Postes séparés par des virgules :
-(ex: Coupe,Ébavurage,Peinture,Emballage)","Coupe,Ébavurage,Peinture,Emballage");
+  const postesStr=prompt("Postes séparés par des virgules (ex: Coupe,Ébavurage,Peinture,Emballage)","Coupe,Ébavurage,Peinture,Emballage");
   if(!postesStr)return;
   if(!GAMMES[ref])GAMMES[ref]={};
   GAMMES[ref][name]=postesStr.split(",").map(p=>p.trim()).filter(Boolean);
