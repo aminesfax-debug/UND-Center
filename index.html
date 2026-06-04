@@ -2411,15 +2411,19 @@ function attachApurListeners(){
 // ─── RENDER DISPATCHER ───
 function render(){
   const el=document.getElementById("content");
-  if(S.tab==="dashboard")el.innerHTML=renderDashboard();
-  else if(S.tab==="new_order")el.innerHTML=renderNewOrder();
-  else if(S.tab==="orders")el.innerHTML=renderOrders();
-  else if(S.tab==="launch")el.innerHTML=renderLaunch();
-  else if(S.tab==="planning")el.innerHTML=renderPlanning();
-  else if(S.tab==="apurement")el.innerHTML=renderApurement();
-  else if(S.tab==="bons")el.innerHTML=renderBons();
-  else if(S.tab==="pending")el.innerHTML=renderPending();
-
+  try{
+    if(S.tab==="dashboard")el.innerHTML=renderDashboard();
+    else if(S.tab==="new_order")el.innerHTML=renderNewOrder();
+    else if(S.tab==="orders")el.innerHTML=renderOrders();
+    else if(S.tab==="launch")el.innerHTML=renderLaunch();
+    else if(S.tab==="planning")el.innerHTML=renderPlanning();
+    else if(S.tab==="apurement")el.innerHTML=renderApurement();
+    else if(S.tab==="bons")el.innerHTML=renderBons();
+    else if(S.tab==="pending")el.innerHTML=renderPending();
+  }catch(err){
+    console.error("Render error ["+S.tab+"]:",err);
+    el.innerHTML=`<div class="card" style="border-color:var(--red)"><div style="color:var(--red);font-weight:700;margin-bottom:8px">⚠️ Erreur d'affichage</div><pre style="font-size:11px;color:var(--text2);white-space:pre-wrap">${String(err)}</pre></div>`;
+  }
   // Attach status selects
   document.querySelectorAll(".st-sel[data-oid]").forEach(sel=>{
     sel.addEventListener("change",()=>{setOrderStatus(sel.dataset.oid,sel.value);render();});
