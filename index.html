@@ -525,7 +525,7 @@ const GAMMES={
 // Default postes for any ref not in GAMMES
 const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[]};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -3186,222 +3186,489 @@ function setSlackWebhook(url){
 // ────────────────────────────────────────────────────────────────────────────
 
 // ═══════════════════════════════════════════
-// ─── PARAMÈTRES — GAMMES & TEMPS STANDARDS ──
+// ─── PARAMÈTRES ─────────────────────────────
 // ═══════════════════════════════════════════
 
-// S.standards structure:
-// { "P-215": { profiles: [{ id, label, dims:["15","30",...], gamme:"Automatique", postes:{"Découpe presse":0.05,...} }] } }
-
-function getStdProfile(ref,dim){
-  const std=S.standards[ref];
-  if(!std||!std.profiles||!std.profiles.length)return null;
-  // Try exact dim match first
-  const exact=std.profiles.find(p=>p.dims&&p.dims.includes(String(dim)));
-  if(exact)return exact;
-  // Fall back to default profile (dims empty or undefined)
-  const def=std.profiles.find(p=>!p.dims||!p.dims.length);
-  return def||std.profiles[0];
+// Standards structure: S.standards[ref][gamme][dim][poste] = minutes
+function getStdTime(ref,gamme,dim,poste){
+  try{return S.standards[ref][gamme][dim][poste]||0;}catch(e){return 0;}
 }
-
-function saveStdProfiles(ref,profiles){
+function setStdTime(ref,gamme,dim,poste,val){
   if(!S.standards[ref])S.standards[ref]={};
-  S.standards[ref].profiles=profiles;
-  if(db)db.ref("standards/"+ref).set(S.standards[ref]);
+  if(!S.standards[ref][gamme])S.standards[ref][gamme]={};
+  if(!S.standards[ref][gamme][dim])S.standards[ref][gamme][dim]={};
+  S.standards[ref][gamme][dim][poste]=val;
+}
+function saveAllStandards(ref){
+  if(db)db.ref("standards/"+ref).set(S.standards[ref]||{});
 }
 
-// ── Params state ──
-let P_STATE={
-  subTab:"gammes", // "gammes" | "standards"
-  selRef:null,
-  editProfile:null, // {profileIdx, profile copy}
-  dirty:false,
-};
+// Params state
+let P_STATE={subTab:"resources",selRef:null,selGamme:null,editGamme:null,editWs:null};
 
-function renderParams(){
-  const tabs=["gammes","standards"];
-  const tabLabels={"gammes":"Gammes opératoires","standards":"Temps standards"};
-  let h=`<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px">
-    ${tabs.map(t=>`<button onclick="P_STATE.subTab='${t}';P_STATE.selRef=null;P_STATE.editProfile=null;render()" style="padding:7px 14px;border-radius:var(--r);border:1px solid ${P_STATE.subTab===t?"#17171A":"var(--border)"};background:${P_STATE.subTab===t?"#17171A":"transparent"};color:${P_STATE.subTab===t?"#FFF":"var(--text2)"};font-size:13px;font-weight:500;cursor:pointer">${tabLabels[t]}</button>`).join("")}
-  </div>`;
-  return h+(P_STATE.subTab==="gammes"?renderParamsGammes():renderParamsStandards());
+// WS management - stored in Firebase
+let WS_CUSTOM=null; // loaded from Firebase, fallback to WS
+
+function getWS(){return WS_CUSTOM||WS;}
+
+
+// ═══════════════════════════════════════════
+// ─── MATRICES DE PRIX ────────────────────
+// ═══════════════════════════════════════════
+
+const ENTRAXE_DIMS=["64","96","128","160","192","224","256","288","320"];
+const LONGUEUR_DIMS=["10","15","20","25","30","35","40","45","50","60","80","90","100","120","150"];
+
+function getPriceFromMatrix(ref,dim,color){
+  const m=S.priceMatrices.find(mx=>mx.refs&&mx.refs.includes(ref));
+  if(!m)return null;
+  const grp=m.colorGroups&&m.colorGroups.find(g=>g.colors&&g.colors.includes(color));
+  const grpName=grp?grp.name:(m.colorGroups&&m.colorGroups[0]?m.colorGroups[0].name:null);
+  if(!grpName||!m.prices)return null;
+  const dimKey=String(dim).replace("cm","").trim();
+  return(m.prices[dimKey]&&m.prices[dimKey][grpName]!=null)?parseFloat(m.prices[dimKey][grpName]):null;
 }
 
-function renderParamsGammes(){
-  const allRefs=[...Object.keys(GAMMES),...Object.keys(FACADE_MODELS).map(k=>k)].filter((v,i,a)=>a.indexOf(v)===i);
-  const sel=P_STATE.selRef;
-  let h=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-    ${allRefs.map(ref=>`<button onclick="P_STATE.selRef='${ref}';P_STATE.editProfile=null;render()" style="padding:6px 14px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${ref}</button>`).join("")}
-  </div>`;
-  if(!sel)return h+`<div class="card"><div class="empty"><i class="ti ti-list"></i><p>Sélectionnez une référence pour gérer ses gammes.</p></div></div>`;
+let PM={editId:null,form:null}; // Price Matrix editor state
 
-  const gammes=GAMMES[sel]||{};
-  h+=`<div class="card">
-    <div class="card-title"><i class="ti ti-sitemap"></i>Gammes — ${sel}</div>
-    ${Object.entries(gammes).length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px">Aucune gamme définie.</div>`:""}
-    ${Object.entries(gammes).map(([gname,postes])=>`
-    <div style="margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <strong style="font-size:14px">${gname}</strong>
-        <button onclick="deleteGamme('${sel}','${gname}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;font-size:11px;color:#A32D2D;cursor:pointer"><i class="ti ti-trash"></i></button>
+function newPriceMatrix(){
+  PM.form={
+    id:"pm-"+Date.now(),name:"",
+    refs:[],dimType:"longueur",
+    colorGroups:[{name:"Standard",colors:["Noir","Blanc","Moon light","Champagne"]}],
+    prices:{}
+  };
+  PM.editId="__new__";
+  render();
+}
+function editPriceMatrix(id){
+  const m=S.priceMatrices.find(mx=>mx.id===id);
+  if(!m)return;
+  PM.form=JSON.parse(JSON.stringify(m));
+  PM.editId=id;
+  render();
+}
+function deletePriceMatrix(id){
+  if(!confirm("Supprimer cette matrice ?"))return;
+  S.priceMatrices=S.priceMatrices.filter(m=>m.id!==id);
+  const obj={};S.priceMatrices.forEach(m=>obj[m.id]=m);
+  if(db)db.ref("priceMatrices").set(obj);
+  render();
+}
+function savePriceMatrix(){
+  if(!PM.form)return;
+  // Read price inputs from DOM
+  const dims=PM.form.dimType==="entraxe"?ENTRAXE_DIMS:LONGUEUR_DIMS;
+  const groups=(PM.form.colorGroups||[]).map(g=>g.name);
+  dims.forEach(dim=>{
+    if(!PM.form.prices[dim])PM.form.prices[dim]={};
+    groups.forEach(g=>{
+      const el=document.getElementById("pm-price-"+dim+"-"+g.replace(/[^a-z0-9]/gi,"_"));
+      if(el&&el.value!=="")PM.form.prices[dim][g]=parseFloat(el.value)||0;
+    });
+  });
+  if(!PM.form.name){alert("Veuillez saisir un nom.");return;}
+  if(PM.editId==="__new__"){
+    S.priceMatrices.push(PM.form);
+  } else {
+    const idx=S.priceMatrices.findIndex(m=>m.id===PM.editId);
+    if(idx>=0)S.priceMatrices[idx]=PM.form;
+    else S.priceMatrices.push(PM.form);
+  }
+  const obj={};S.priceMatrices.forEach(m=>obj[m.id]=m);
+  if(db)db.ref("priceMatrices").set(obj);
+  PM.editId=null;PM.form=null;
+  render();
+}
+function pmToggleRef(ref){
+  if(!PM.form)return;
+  if(!PM.form.refs)PM.form.refs=[];
+  if(PM.form.refs.includes(ref))PM.form.refs=PM.form.refs.filter(r=>r!==ref);
+  else PM.form.refs.push(ref);
+  render();
+}
+function pmAddColorGroup(){
+  const name=prompt("Nom du groupe de couleurs (ex: Spécial, Laqué…):");
+  if(!name)return;
+  if(!PM.form.colorGroups)PM.form.colorGroups=[];
+  PM.form.colorGroups.push({name,colors:[]});
+  render();
+}
+function pmRemoveColorGroup(idx){
+  if(!PM.form.colorGroups)return;
+  PM.form.colorGroups.splice(idx,1);
+  render();
+}
+function pmToggleColor(gIdx,color){
+  if(!PM.form||!PM.form.colorGroups[gIdx])return;
+  const grp=PM.form.colorGroups[gIdx];
+  if(!grp.colors)grp.colors=[];
+  if(grp.colors.includes(color))grp.colors=grp.colors.filter(c=>c!==color);
+  else grp.colors.push(color);
+  render();
+}
+
+function renderParamsPrix(){
+  if(PM.editId!==null)return renderPmEditor();
+  const matrices=S.priceMatrices||[];
+  let h=`<div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-tag"></i>Matrices de prix
+      <button onclick="newPriceMatrix()" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Nouvelle matrice</button>
+    </div>
+    ${matrices.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px;padding:8px 0">Aucune matrice définie.</div>`:""}
+    ${matrices.map(m=>`
+    <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:var(--rl);overflow:hidden">
+      <div style="padding:12px 14px;background:var(--surface2);display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:14px;margin-bottom:4px">${esc(m.name)}</div>
+          <div style="font-size:11px;color:var(--teal);font-weight:600;margin-bottom:4px">${(m.refs||[]).join(" · ")}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${(m.colorGroups||[]).map(g=>`<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:#FFF;border:1px solid var(--border)">${esc(g.name)} (${(g.colors||[]).length} couleurs)</span>`).join("")}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button onclick="editPriceMatrix('${m.id}')" class="btn btn-sm"><i class="ti ti-pencil"></i></button>
+          <button onclick="deletePriceMatrix('${m.id}')" style="padding:5px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:12px;cursor:pointer"><i class="ti ti-trash"></i></button>
+        </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-        ${postes.map((p,i)=>`
-        <span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px">${i+1}. ${p}</span>
-        ${i<postes.length-1?`<i class="ti ti-arrow-right" style="color:var(--text3);font-size:12px"></i>`:""}`).join("")}
+      <div style="padding:10px 14px;overflow-x:auto">
+        ${renderPmPreviewTable(m)}
       </div>
     </div>`).join("")}
-    <button onclick="addGamme('${sel}')" class="btn btn-sm" style="margin-top:8px"><i class="ti ti-plus"></i>Ajouter une gamme</button>
   </div>`;
   return h;
 }
 
-function renderParamsStandards(){
+function renderPmPreviewTable(m){
+  if(!m.prices||!m.colorGroups||!m.colorGroups.length)return`<span style="color:var(--text3);font-size:12px">Aucun prix saisi</span>`;
+  const dims=m.dimType==="entraxe"?ENTRAXE_DIMS:LONGUEUR_DIMS;
+  const groups=m.colorGroups.map(g=>g.name);
+  const activeDims=dims.filter(d=>groups.some(g=>m.prices[d]&&m.prices[d][g]!=null&&m.prices[d][g]!==""));
+  if(!activeDims.length)return`<span style="color:var(--text3);font-size:12px">Aucun prix saisi</span>`;
+  return`<table style="font-size:11px;border-collapse:collapse;min-width:300px">
+    <thead><tr>
+      <th style="padding:4px 10px;background:var(--surface2);border:1px solid var(--border);text-align:left">Dim.</th>
+      ${groups.map(g=>`<th style="padding:4px 10px;background:var(--surface2);border:1px solid var(--border);text-align:right">${esc(g)}</th>`).join("")}
+    </tr></thead>
+    <tbody>
+      ${activeDims.map(d=>`<tr>
+        <td style="padding:4px 10px;border:1px solid var(--border);font-weight:600">${d}${m.dimType==="entraxe"?"mm":"cm"}</td>
+        ${groups.map(g=>`<td style="padding:4px 10px;border:1px solid var(--border);text-align:right;color:var(--teal);font-weight:600">${m.prices[d]&&m.prices[d][g]!=null?parseFloat(m.prices[d][g]).toFixed(3)+" TND":"—"}</td>`).join("")}
+      </tr>`).join("")}
+    </tbody>
+  </table>`;
+}
+
+function renderPmEditor(){
+  const f=PM.form;if(!f)return"";
+  const dims=f.dimType==="entraxe"?ENTRAXE_DIMS:LONGUEUR_DIMS;
+  const allColors=["Noir","Blanc","Moon light","Champagne","Inox brossé","Anodisé naturel","Anodisé bronze","Personnalisée"];
+  return`
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <button onclick="PM.editId=null;PM.form=null;render()" class="btn btn-sm"><i class="ti ti-arrow-left"></i>Retour</button>
+    <span style="font-weight:700;font-size:15px">${PM.editId==="__new__"?"Nouvelle matrice":"Modifier matrice"}</span>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-info-circle"></i>Informations générales</div>
+    <div class="form-grid">
+      <div class="form-group" style="grid-column:1/-1">
+        <label>Nom de la matrice</label>
+        <input type="text" value="${esc(f.name||"")}" placeholder="ex: Série 215/234/231 — Longueur" oninput="PM.form.name=this.value">
+      </div>
+      <div class="form-group">
+        <label>Type de dimension</label>
+        <select onchange="PM.form.dimType=this.value;PM.form.prices={};render()">
+          <option value="longueur"${f.dimType==="longueur"?" selected":""}>Longueur (cm)</option>
+          <option value="entraxe"${f.dimType==="entraxe"?" selected":""}>Entraxe (mm, multiples de 32)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-barcode"></i>Références concernées</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${[...Object.keys(GAMMES)].map(ref=>`
+      <button onclick="pmToggleRef('${ref}')" style="padding:5px 12px;border-radius:var(--r);border:2px solid ${(f.refs||[]).includes(ref)?"var(--teal)":"var(--border)"};background:${(f.refs||[]).includes(ref)?"var(--teal-bg)":"#FFF"};color:${(f.refs||[]).includes(ref)?"var(--teal)":"var(--text2)"};font-size:12px;font-weight:700;cursor:pointer">${ref}</button>`).join("")}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-palette"></i>Groupes de couleurs
+      <button onclick="pmAddColorGroup()" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Ajouter</button>
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Chaque groupe a le même prix. Assignez les couleurs aux groupes.</p>
+    ${(f.colorGroups||[]).map((grp,gi)=>`
+    <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:var(--r);padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <input type="text" value="${esc(grp.name)}" oninput="PM.form.colorGroups[${gi}].name=this.value" style="font-weight:700;font-size:13px;flex:1">
+        <button onclick="pmRemoveColorGroup(${gi})" style="padding:3px 8px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:11px;cursor:pointer"><i class="ti ti-trash"></i></button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${allColors.map(c=>`<button onclick="pmToggleColor(${gi},'${c}')" style="padding:3px 10px;border-radius:20px;border:1px solid ${(grp.colors||[]).includes(c)?"var(--teal)":"var(--border)"};background:${(grp.colors||[]).includes(c)?"var(--teal-bg)":"#FFF"};color:${(grp.colors||[]).includes(c)?"var(--teal)":"var(--text2)"};font-size:11px;cursor:pointer">${c}</button>`).join("")}
+      </div>
+    </div>`).join("")}
+  </div>
+
+  <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px">
+      <i class="ti ti-table"></i> Tableau des prix — ${f.dimType==="longueur"?"Longueur (cm)":"Entraxe (mm)"}
+      <span style="font-size:11px;font-weight:400;color:var(--text2)"> / prix en TND HT par paquet</span>
+    </div>
+    <div style="overflow-x:auto">
+    <table style="min-width:400px">
+      <thead><tr>
+        <th style="position:sticky;left:0;background:var(--surface2);z-index:1;min-width:80px">Dim.</th>
+        ${(f.colorGroups||[]).map(g=>`<th style="text-align:right;min-width:110px">${esc(g.name)}</th>`).join("")}
+      </tr></thead>
+      <tbody>
+        ${dims.map(dim=>`<tr>
+          <td style="font-weight:700;position:sticky;left:0;background:var(--surface2);z-index:1">${dim}${f.dimType==="entraxe"?"mm":"cm"}</td>
+          ${(f.colorGroups||[]).map(g=>{
+            const key=g.name.replace(/[^a-z0-9]/gi,"_");
+            const existing=f.prices&&f.prices[dim]&&f.prices[dim][g.name]!=null?f.prices[dim][g.name]:"";
+            return`<td style="text-align:right">
+              <input type="number" id="pm-price-${dim}-${key}" value="${existing}" min="0" step="0.001" placeholder="—"
+                style="width:100px;font-size:13px;text-align:right;padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r)">
+            </td>`;
+          }).join("")}
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    </div>
+    <div style="padding:10px 16px;background:var(--surface2);font-size:11px;color:var(--text3)">
+      Prix en TND HT. Laisser vide si dimension non commercialisée.
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;justify-content:flex-end">
+    <button onclick="PM.editId=null;PM.form=null;render()" class="btn">Annuler</button>
+    <button onclick="savePriceMatrix()" class="btn btn-primary" style="width:auto;padding:10px 24px"><i class="ti ti-device-floppy"></i>Enregistrer la matrice</button>
+  </div>`;
+}
+
+function renderParams(){
+  const tabs=[{k:"resources",l:"Ressources",i:"ti-server"},{k:"gammes",l:"Gammes",i:"ti-sitemap"},{k:"standards",l:"Temps standards",i:"ti-clock"},{k:"prix",l:"Prix",i:"ti-tag"}];
+  let h=`<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;flex-wrap:wrap">
+    ${tabs.map(t=>`<button onclick="P_STATE.subTab='${t.k}';P_STATE.selRef=null;P_STATE.selGamme=null;P_STATE.editGamme=null;render()" style="display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r);border:1px solid ${P_STATE.subTab===t.k?"#17171A":"var(--border)"};background:${P_STATE.subTab===t.k?"#17171A":"transparent"};color:${P_STATE.subTab===t.k?"#FFF":"var(--text2)"};font-size:13px;font-weight:500;cursor:pointer"><i class="ti ${t.i}"></i>${t.l}</button>`).join("")}
+  </div>`;
+  if(P_STATE.subTab==="resources")return h+renderParamsResources();
+  if(P_STATE.subTab==="gammes")return h+renderParamsGammes();
+  if(P_STATE.subTab==="prix")return h+renderParamsPrix();
+  return h+renderParamsStandards();
+}
+
+// ── RESSOURCES ─────────────────────────────────────────────────────────────
+function renderParamsResources(){
+  const ws=getWS();
+  const editing=P_STATE.editWs;
+  return`<div class="card">
+    <div class="card-title"><i class="ti ti-server"></i>Postes de travail / Machines
+      <button onclick="P_STATE.editWs={id:'',name:'',isNew:true};render()" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Ajouter</button>
+    </div>
+    ${editing&&editing.isNew?`<div style="background:var(--teal-bg);border:1px solid var(--teal);border-radius:var(--r);padding:14px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--teal);margin-bottom:10px">Nouveau poste</div>
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="form-group"><label>Nom du poste</label><input type="text" id="ws-new-name" placeholder="ex: Presse 100T" oninput="P_STATE.editWs.name=this.value"></div>
+        <div class="form-group"><label>Identifiant (code unique)</label><input type="text" id="ws-new-id" placeholder="ex: press100" oninput="P_STATE.editWs.id=this.value.replace(/[^a-z0-9_]/gi,'')"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="P_STATE.editWs=null;render()" class="btn btn-sm">Annuler</button>
+        <button onclick="saveNewWs()" class="btn btn-sm btn-teal"><i class="ti ti-check"></i>Ajouter</button>
+      </div>
+    </div>`:""}
+    <div class="table-scroll"><table style="min-width:400px">
+      <thead><tr><th style="width:180px">Identifiant</th><th>Nom du poste</th><th style="width:120px;text-align:center">Actions</th></tr></thead>
+      <tbody>
+        ${ws.map(w=>{
+          const isEdit=editing&&!editing.isNew&&editing.id===w.id;
+          return`<tr>
+            <td style="font-family:monospace;font-size:12px;color:var(--text2)">${w.id}</td>
+            <td>${isEdit?`<input type="text" value="${esc(w.name)}" id="ws-edit-name-${w.id}" style="width:100%;font-size:13px">`:esc(w.name)}</td>
+            <td style="text-align:center;display:flex;gap:6px;justify-content:center">
+              ${isEdit?`
+                <button onclick="saveEditWs('${w.id}')" style="padding:4px 10px;border-radius:var(--r);border:none;background:var(--teal);color:#FFF;font-size:12px;cursor:pointer"><i class="ti ti-check"></i></button>
+                <button onclick="P_STATE.editWs=null;render()" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);font-size:12px;cursor:pointer"><i class="ti ti-x"></i></button>
+              `:`
+                <button onclick="P_STATE.editWs={id:'${w.id}',name:'${esc(w.name)}',isNew:false};render()" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);font-size:12px;cursor:pointer"><i class="ti ti-pencil"></i></button>
+                <button onclick="deleteWs('${w.id}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;font-size:12px;color:#A32D2D;cursor:pointer"><i class="ti ti-trash"></i></button>
+              `}
+            </td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+function saveNewWs(){
+  const id=P_STATE.editWs&&P_STATE.editWs.id;
+  const name=P_STATE.editWs&&P_STATE.editWs.name;
+  if(!id||!name){alert("Veuillez saisir un identifiant et un nom.");return;}
+  if(!WS_CUSTOM)WS_CUSTOM=JSON.parse(JSON.stringify(WS));
+  WS_CUSTOM.push({id,name});
+  if(db)db.ref("config/ws").set(WS_CUSTOM);
+  P_STATE.editWs=null;render();
+}
+function saveEditWs(id){
+  const nameEl=document.getElementById("ws-edit-name-"+id);
+  if(!nameEl)return;
+  if(!WS_CUSTOM)WS_CUSTOM=JSON.parse(JSON.stringify(WS));
+  const ws=WS_CUSTOM.find(w=>w.id===id);
+  if(ws)ws.name=nameEl.value;
+  if(db)db.ref("config/ws").set(WS_CUSTOM);
+  P_STATE.editWs=null;render();
+}
+function deleteWs(id){
+  if(!confirm("Supprimer ce poste ?"))return;
+  if(!WS_CUSTOM)WS_CUSTOM=JSON.parse(JSON.stringify(WS));
+  WS_CUSTOM=WS_CUSTOM.filter(w=>w.id!==id);
+  if(db)db.ref("config/ws").set(WS_CUSTOM);
+  render();
+}
+
+// ── GAMMES ──────────────────────────────────────────────────────────────────
+function renderParamsGammes(){
   const allRefs=Object.keys(GAMMES);
   const sel=P_STATE.selRef;
-  let h=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-    ${allRefs.map(ref=>{
-      const hasStd=S.standards[ref]&&S.standards[ref].profiles&&S.standards[ref].profiles.length>0;
-      return`<button onclick="P_STATE.selRef='${ref}';P_STATE.editProfile=null;render()" style="padding:6px 14px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">
-        ${ref}${hasStd?` <span style="font-size:10px;opacity:.7">✓</span>`:""}
-      </button>`;
-    }).join("")}
+  const editG=P_STATE.editGamme;
+  let h=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+    ${allRefs.map(ref=>`<button onclick="P_STATE.selRef='${ref}';P_STATE.editGamme=null;render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${ref}</button>`).join("")}
   </div>`;
-  if(!sel)return h+`<div class="card"><div class="empty"><i class="ti ti-clock"></i><p>Sélectionnez une référence pour gérer ses temps standards.</p></div></div>`;
-
-  const profiles=(S.standards[sel]&&S.standards[sel].profiles)||[];
-  const editIdx=P_STATE.editProfile!==null?P_STATE.editProfile.idx:null;
-
-  h+=`<div class="card" style="margin-bottom:12px">
-    <div class="card-title"><i class="ti ti-clock"></i>Profils de temps standards — ${sel}
-      <button onclick="addStdProfile('${sel}')" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Nouveau profil</button>
+  if(!sel)return h+`<div class="card"><div class="empty"><i class="ti ti-sitemap"></i><p>Sélectionnez une référence.</p></div></div>`;
+  const gammes=GAMMES[sel]||{};
+  h+=`<div class="card">
+    <div class="card-title"><i class="ti ti-sitemap"></i>Gammes — ${sel}
+      <button onclick="addGamme('${sel}')" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Ajouter</button>
     </div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:12px">
-      Un profil définit la gamme et les temps pour un groupe de dimensions. Créez un profil "Défaut" + des profils spécifiques pour les dimensions particulières.
-    </p>
-    ${profiles.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px;padding:8px 0">Aucun profil défini. Cliquez "Nouveau profil" pour commencer.</div>`:""}
-    ${profiles.map((prof,idx)=>{
-      const isEdit=editIdx===idx;
-      const ep=isEdit?P_STATE.editProfile.data:prof;
+    ${Object.entries(gammes).map(([gname,postes])=>{
+      const isEdit=editG&&editG.ref===sel&&editG.name===gname;
       return`<div style="margin-bottom:12px;border:1px solid ${isEdit?"var(--teal)":"var(--border)"};border-radius:var(--rl);overflow:hidden">
-        <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:${isEdit?"var(--teal-bg)":"var(--surface2)"}">
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:13px">${prof.label||"Profil "+(idx+1)}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">
-              ${prof.dims&&prof.dims.length?`Dimensions : ${prof.dims.join(", ")} cm`:"Toutes dimensions (défaut)"}
-              — Gamme : ${prof.gamme||"—"}
-              — ${Object.keys(prof.postes||{}).length} postes configurés
-            </div>
-          </div>
-          <button onclick="editStdProfile('${sel}',${idx})" style="padding:5px 10px;border-radius:var(--r);border:1px solid ${isEdit?"var(--teal)":"var(--border)"};background:${isEdit?"var(--teal)":"#FFF"};color:${isEdit?"#FFF":"var(--text2)"};cursor:pointer;font-size:12px">
-            <i class="ti ${isEdit?"ti-x":"ti-pencil"}"></i>${isEdit?" Annuler":""}</button>
-          <button onclick="deleteStdProfile('${sel}',${idx})" style="padding:5px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;cursor:pointer;font-size:12px"><i class="ti ti-trash"></i></button>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:${isEdit?"var(--teal-bg)":"var(--surface2)"}">
+          ${isEdit?`<input type="text" id="edit-gname" value="${esc(gname)}" style="font-size:13px;font-weight:700;flex:1">`:
+            `<strong style="flex:1;font-size:13px">${gname}</strong>`}
+          <button onclick="${isEdit?"saveEditGamme('"+sel+"','"+gname+"')":"P_STATE.editGamme={ref:'"+sel+"',name:'"+gname+"',postes:"+JSON.stringify(postes)+"};render()"}" style="padding:4px 10px;border-radius:var(--r);border:1px solid ${isEdit?"var(--teal)":"var(--border)"};background:${isEdit?"var(--teal)":"#FFF"};color:${isEdit?"#FFF":"var(--text2)"};font-size:12px;cursor:pointer"><i class="ti ${isEdit?"ti-check":"ti-pencil"}"></i></button>
+          ${isEdit?`<button onclick="P_STATE.editGamme=null;render()" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);font-size:12px;cursor:pointer"><i class="ti ti-x"></i></button>`:""}
+          <button onclick="deleteGamme('${sel}','${gname}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:12px;cursor:pointer"><i class="ti ti-trash"></i></button>
         </div>
-        ${isEdit?`<div style="padding:16px">
-          <div class="form-grid" style="margin-bottom:12px">
-            <div class="form-group">
-              <label>Nom du profil</label>
-              <input type="text" value="${esc(ep.label||"")}" placeholder="ex: Défaut, Grandes dimensions" oninput="P_STATE.editProfile.data.label=this.value">
-            </div>
-            <div class="form-group">
-              <label>Gamme opératoire</label>
-              <select onchange="P_STATE.editProfile.data.gamme=this.value;P_STATE.editProfile.data.postes={};render()">
-                <option value="">— Choisir —</option>
-                ${Object.keys(GAMMES[sel]||{}).map(g=>`<option value="${g}"${ep.gamme===g?" selected":""}>${g}</option>`).join("")}
-              </select>
-            </div>
-          </div>
-          <div class="form-group" style="margin-bottom:12px">
-            <label>Dimensions concernées (laisser vide = toutes)</label>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              ${(DIMS.filter(d=>d!=="")).map(d=>{
-                const checked=ep.dims&&ep.dims.includes(d);
-                return`<label style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;border:1px solid ${checked?"var(--teal)":"var(--border)"};background:${checked?"var(--teal-bg)":"#FFF"};cursor:pointer;font-size:12px">
-                  <input type="checkbox" ${checked?"checked":""} onchange="toggleStdDim('${d}',this.checked)" style="cursor:pointer">${d} cm
-                </label>`;
-              }).join("")}
-            </div>
-          </div>
-          ${ep.gamme&&GAMMES[sel]&&GAMMES[sel][ep.gamme]?`
-          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Temps unitaire par poste (min/pcs)</div>
-          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
-            ${(GAMMES[sel][ep.gamme]||[]).map((poste,pi)=>{
-              const t=ep.postes&&ep.postes[poste]||"";
-              return`<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--r)">
-                <div style="font-weight:600;font-size:13px">${pi+1}. ${poste}</div>
-                <input type="number" value="${t}" min="0" step="0.001" placeholder="0.000"
-                  oninput="if(!P_STATE.editProfile.data.postes)P_STATE.editProfile.data.postes={};P_STATE.editProfile.data.postes['${poste}']=parseFloat(this.value)||0"
-                  style="width:90px;font-size:14px;text-align:right;padding:6px 10px">
-                <span style="font-size:12px;color:var(--text2)">min/pcs</span>
-              </div>`;
-            }).join("")}
-          </div>`:ep.gamme?`<div style="color:var(--text3);font-size:12px">Gamme sélectionnée non trouvée dans GAMMES.</div>`:`<div style="color:var(--text3);font-size:12px;font-style:italic">Sélectionnez une gamme pour configurer les temps.</div>`}
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button onclick="P_STATE.editProfile=null;render()" class="btn">Annuler</button>
-            <button onclick="saveStdProfile('${sel}',${idx})" class="btn btn-primary" style="width:auto;padding:10px 20px"><i class="ti ti-device-floppy"></i>Enregistrer</button>
-          </div>
-        </div>`:""}
+        <div style="padding:10px 14px">
+          ${isEdit?`
+            <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Postes séparés par des virgules :</div>
+            <textarea id="edit-gpostes" rows="2" style="width:100%;font-size:13px">${(editG.postes||postes).join(", ")}</textarea>`:`
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+            ${postes.map((p,i)=>`<span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px">${i+1}. ${p}</span>${i<postes.length-1?'<i class="ti ti-arrow-right" style="color:var(--text3);font-size:11px"></i>':""}`).join("")}
+          </div>`}
+        </div>
       </div>`;
     }).join("")}
   </div>`;
   return h;
 }
-
 function addGamme(ref){
-  const name=prompt("Nom de la nouvelle gamme (ex: Semi-Automatique) :");
+  const name=prompt("Nom de la nouvelle gamme :");
   if(!name)return;
-  const postesStr=prompt("Postes séparés par des virgules (ex: Coupe,Ébavurage,Peinture,Emballage)","Coupe,Ébavurage,Peinture,Emballage");
+  const postesStr=prompt("Postes séparés par virgules :","Coupe,Ébavurage,Peinture,Emballage");
   if(!postesStr)return;
   if(!GAMMES[ref])GAMMES[ref]={};
   GAMMES[ref][name]=postesStr.split(",").map(p=>p.trim()).filter(Boolean);
   render();
 }
+function saveEditGamme(ref,oldName){
+  const newNameEl=document.getElementById("edit-gname");
+  const postesEl=document.getElementById("edit-gpostes");
+  if(!newNameEl||!postesEl)return;
+  const newName=newNameEl.value.trim();
+  const newPostes=postesEl.value.split(",").map(p=>p.trim()).filter(Boolean);
+  if(!newName||!newPostes.length){alert("Nom et postes obligatoires.");return;}
+  if(newName!==oldName){GAMMES[ref][newName]=newPostes;delete GAMMES[ref][oldName];}
+  else{GAMMES[ref][oldName]=newPostes;}
+  P_STATE.editGamme=null;render();
+}
 function deleteGamme(ref,name){
-  if(!confirm("Supprimer la gamme '"+name+"' pour "+ref+" ?"))return;
+  if(!confirm("Supprimer la gamme '"+name+"' ?"))return;
   if(GAMMES[ref])delete GAMMES[ref][name];
-  render();
+  P_STATE.editGamme=null;render();
 }
 
-function addStdProfile(ref){
-  const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
-  const newProfile={label:"Nouveau profil",dims:[],gamme:Object.keys(GAMMES[ref]||{})[0]||"",postes:{}};
-  profiles.push(newProfile);
-  saveStdProfiles(ref,profiles);
-  P_STATE.editProfile={idx:profiles.length-1,data:JSON.parse(JSON.stringify(newProfile))};
-  render();
+// ── TEMPS STANDARDS ─────────────────────────────────────────────────────────
+// Structure: S.standards[ref][gamme][dim][poste] = minutes
+function renderParamsStandards(){
+  const allRefs=Object.keys(GAMMES);
+  const sel=P_STATE.selRef;
+  const selG=P_STATE.selGamme;
+  let h=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+    ${allRefs.map(ref=>`<button onclick="P_STATE.selRef='${ref}';P_STATE.selGamme=null;render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${ref}</button>`).join("")}
+  </div>`;
+  if(!sel)return h+`<div class="card"><div class="empty"><i class="ti ti-clock"></i><p>Sélectionnez une référence.</p></div></div>`;
+  const gammes=Object.keys(GAMMES[sel]||{});
+  if(!gammes.length)return h+`<div class="card"><div class="empty"><p>Aucune gamme définie pour ${sel}. Allez dans l'onglet Gammes.</p></div></div>`;
+  h+=`<div style="display:flex;gap:6px;margin-bottom:14px">
+    ${gammes.map(g=>`<button onclick="P_STATE.selGamme='${g}';render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${selG===g?"#17171A":"var(--border)"};background:${selG===g?"#17171A":"transparent"};color:${selG===g?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${g}</button>`).join("")}
+  </div>`;
+  if(!selG)return h+`<div class="card"><div class="empty"><p>Sélectionnez une gamme.</p></div></div>`;
+  const postes=GAMMES[sel][selG]||[];
+  const dims=DIMS.filter(d=>d!=="");
+  h+=`<div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-weight:700;font-size:13px">${sel} — ${selG} <span style="font-size:11px;font-weight:400;color:var(--text2)">/ min par pièce</span></div>
+      <button onclick="saveAllStdMatrix('${sel}','${selG}')" class="btn btn-teal btn-sm"><i class="ti ti-device-floppy"></i>Enregistrer</button>
+    </div>
+    <div class="table-scroll">
+    <table style="min-width:600px;font-size:12px">
+      <thead><tr>
+        <th style="position:sticky;left:0;background:var(--surface2);z-index:1;min-width:70px">Dim.</th>
+        ${postes.map(p=>`<th style="text-align:right;white-space:nowrap">${p}</th>`).join("")}
+      </tr></thead>
+      <tbody>
+        ${dims.map(dim=>`<tr>
+          <td style="font-weight:700;position:sticky;left:0;background:var(--surface2);z-index:1">${dim} cm</td>
+          ${postes.map(p=>{
+            const v=getStdTime(sel,selG,dim,p);
+            return`<td style="text-align:right">
+              <input type="number" value="${v||""}" min="0" step="0.001" placeholder="—"
+                data-ref="${sel}" data-gamme="${selG}" data-dim="${dim}" data-poste="${p}"
+                oninput="setStdTime('${sel}','${selG}','${dim}','${p}',parseFloat(this.value)||0)"
+                style="width:70px;font-size:12px;text-align:right;padding:4px 6px;border:1px solid var(--border2);border-radius:var(--r)">
+            </td>`;
+          }).join("")}
+        </tr>`).join("")}
+      </tbody>
+    </table></div>
+    <div style="padding:10px 16px;background:var(--surface2);font-size:11px;color:var(--text3)">
+      Laissez vide si le temps n'est pas applicable pour cette dimension. Valeur en minutes par pièce.
+    </div>
+  </div>`;
+  return h;
 }
-function editStdProfile(ref,idx){
-  if(P_STATE.editProfile&&P_STATE.editProfile.idx===idx){P_STATE.editProfile=null;}
-  else{
-    const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
-    P_STATE.editProfile={idx,data:JSON.parse(JSON.stringify(profiles[idx]))};
-  }
-  render();
+function saveAllStdMatrix(ref,gamme){
+  saveAllStandards(ref);
+  const count=document.querySelectorAll(`input[data-ref="${ref}"][data-gamme="${gamme}"]`).length;
+  alert("✅ Temps standards enregistrés pour "+ref+" — "+gamme);
 }
-function deleteStdProfile(ref,idx){
-  if(!confirm("Supprimer ce profil ?"))return;
-  const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
-  profiles.splice(idx,1);
-  saveStdProfiles(ref,profiles);
-  P_STATE.editProfile=null;
-  render();
+
+// Load WS_CUSTOM from Firebase on startup
+function loadWsCustom(){
+  if(db)db.ref("config/ws").once("value").then(s=>{
+    if(s.val()&&Array.isArray(s.val()))WS_CUSTOM=s.val();
+  }).catch(()=>{});
 }
-function toggleStdDim(dim,checked){
-  if(!P_STATE.editProfile)return;
-  if(!P_STATE.editProfile.data.dims)P_STATE.editProfile.data.dims=[];
-  if(checked){if(!P_STATE.editProfile.data.dims.includes(dim))P_STATE.editProfile.data.dims.push(dim);}
-  else{P_STATE.editProfile.data.dims=P_STATE.editProfile.data.dims.filter(d=>d!==dim);}
-  render();
+
+// Updated getStdProfile for backward compatibility
+function getStdProfile(ref,dim){
+  return null; // now using getStdTime directly
 }
-function saveStdProfile(ref,idx){
-  const ep=P_STATE.editProfile&&P_STATE.editProfile.data;
-  if(!ep){return;}
-  if(!ep.gamme){alert("Veuillez sélectionner une gamme.");return;}
-  const profiles=(S.standards[ref]&&S.standards[ref].profiles)||[];
-  profiles[idx]={...ep};
-  saveStdProfiles(ref,profiles);
-  P_STATE.editProfile=null;
-  render();
-}
+
+
+
+// ═══════════════════════════════════════════
+// ─── MATRICES DE PRIX ───────────────────────
+// ═══════════════════════════════════════════
+// Structure: S.priceMatrices = [
+//   { id, name, refs:[], dimType:"longueur"|"entraxe",
+//     colorGroups:[{name,colors:[]}],
+//     prices:{ "30":{"Standard":4.600,"Chrome":5.200}, ... }
+//   }
+// ]
 
 // ─── INIT ───
 document.getElementById("topbar-date").textContent=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});
@@ -3428,6 +3695,7 @@ document.getElementById("content").innerHTML=`
 
 loadAll().then(()=>{
   updateBadges();
+  loadWsCustom();
   // Check for deep link ?cmd= or #order= to open specific order
   const urlParams=new URLSearchParams(window.location.search);
   const hashCmd=window.location.hash.match(/order=([^&]+)/);
@@ -3441,6 +3709,11 @@ loadAll().then(()=>{
   if(db){
     db.ref("standards").once("value").then(s=>{S.standards=s.val()||{};}).catch(()=>{});
     db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
+    db.ref("priceMatrices").once("value").then(s=>{if(s.val())S.priceMatrices=Object.values(s.val()).filter(Boolean);}).catch(()=>{});
+    db.ref("priceMatrices").once("value").then(s=>{
+      const v=s.val();
+      S.priceMatrices=Array.isArray(v)?v:(v?Object.values(v):[]);
+    }).catch(()=>{});
   }
 }).catch(err=>{
   console.error("loadAll failed:",err);
