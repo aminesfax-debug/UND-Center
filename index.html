@@ -958,15 +958,59 @@ function renderDashboard(){
   if(!recent.length){
     h+=`<div class="empty"><i class="ti ti-inbox"></i><p>Aucune commande.<br><button class="btn btn-primary" style="margin-top:10px" onclick="setTab('new_order')"><i class="ti ti-plus"></i>Créer la première</button></p></div>`;
   }else{
-    h+=`<div class="table-scroll"><table><thead><tr><th>N° Cde</th><th>Client</th><th class="hide-mobile">Délai</th><th>Échéance</th><th>Statut</th></tr></thead><tbody>
-      ${recent.map(o=>`<tr>
-        <td style="font-weight:700;font-size:12px;color:var(--text2)">${o.id}</td>
-        <td style="font-weight:500">${esc(o.client)}</td>
-        <td class="hide-mobile" style="font-size:12px;color:var(--text2)">${o.deadline}</td>
-        <td>${dlLabel(daysLeft(o.deadline))}</td>
-        <td>${statusPill(o.status)}</td>
-      </tr>`).join("")}
-    </tbody></table></div>`;
+    h+=`<div>
+      ${recent.map(o=>{
+        const expanded=S.expandedOrder===o.id;
+        const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+        const lines=toA(o.lines||[]).filter(l=>l&&l.ref);
+        const facLines=toA(o.facadeLines||[]).filter(l=>l&&l.ref);
+        const totalPcs=lines.reduce((s,l)=>s+nbPcsFromLine(l),0)+facLines.reduce((s,l)=>s+(parseInt(l.qty)||0),0);
+        return`<div style="border-bottom:1px solid var(--border)">
+          <!-- Header row -->
+          <div onclick="S.expandedOrder=S.expandedOrder==='${o.id}'?null:'${o.id}';render()"
+            style="display:grid;grid-template-columns:90px 1fr auto auto auto;gap:8px;align-items:center;padding:10px 4px;cursor:pointer;transition:background .1s"
+            onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
+            <span style="font-weight:700;font-size:12px;color:var(--text2)">${o.id}</span>
+            <span style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.client)}</span>
+            <span class="hide-mobile">${dlLabel(daysLeft(o.deadline))}</span>
+            <span>${statusPill(o.status)}</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button onclick="event.stopPropagation();genPdfOrder('${o.id}')"
+                title="Confirmation client" style="padding:4px 8px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px;color:var(--teal)">
+                <i class="ti ti-file-invoice"></i>
+              </button>
+              <i class="ti ${expanded?"ti-chevron-up":"ti-chevron-down"}" style="color:var(--text3);font-size:14px"></i>
+            </div>
+          </div>
+          <!-- Expanded detail -->
+          ${expanded?`<div style="padding:10px 14px 14px;background:var(--surface2);border-top:1px solid var(--border)">
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:var(--text2)">
+              ${o.rep?`<span><i class="ti ti-user-circle"></i> ${esc(o.rep)}</span>`:""}
+              ${o.paymentTerms?`<span><i class="ti ti-credit-card"></i> ${esc(o.paymentTerms)}</span>`:""}
+              <span><i class="ti ti-box"></i> ${totalPcs.toLocaleString("fr-FR")} pcs total</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              ${lines.map(l=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#FFF;border-radius:var(--r);border:1px solid var(--border);font-size:12px">
+                <span style="font-weight:700;color:var(--teal);min-width:60px">${l.ref}</span>
+                ${l.dim?`<span style="color:var(--text2)">${l.dim}cm</span>`:""}
+                ${l.color?`<span style="color:var(--text2)">${esc(l.color)}</span>`:""}
+                <span style="flex:1;color:var(--text2);font-size:11px">${esc(l.designation||"")}</span>
+                <span style="font-weight:600">${nbPcsFromLine(l).toLocaleString("fr-FR")} pcs</span>
+              </div>`).join("")}
+              ${facLines.map(l=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#FFF;border-radius:var(--r);border:1px solid var(--border);font-size:12px">
+                <span style="font-weight:700;color:var(--purple);min-width:60px">${l.ref}</span>
+                <span style="flex:1;color:var(--text2);font-size:11px">${esc(l.designation||"")}</span>
+                <span style="font-weight:600">${(parseInt(l.qty)||0)} pcs</span>
+              </div>`).join("")}
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">
+              <button onclick="S.expandedOrder=null;S.subTab='clients';setTab('orders')" class="btn btn-sm"><i class="ti ti-external-link"></i>Ouvrir</button>
+              <button onclick="genPdfOrder('${o.id}')" class="btn btn-sm btn-teal"><i class="ti ti-file-invoice"></i>Confirmation client</button>
+            </div>
+          </div>`:""}
+        </div>`;
+      }).join("")}
+    </div>`;
   }
   h+=`</div>
 
