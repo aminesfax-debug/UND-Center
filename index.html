@@ -246,6 +246,7 @@ textarea{resize:vertical}
     <div class="nav-section">Production</div>
     <button class="nav-item" data-tab="launch"><i class="ti ti-rocket"></i>Lancement OF</button>
     <button class="nav-item" data-tab="planning"><i class="ti ti-calendar-week"></i>Planning</button>
+    <button class="nav-item" data-tab="declarations"><i class="ti ti-clipboard-list"></i>Déclarations</button>
     <div class="nav-section">Admin</div>
     <button class="nav-item" data-tab="params"><i class="ti ti-settings"></i>Paramètres</button>
     <div class="nav-section">Stock</div>
@@ -525,7 +526,7 @@ const GAMMES={
 // Default postes for any ref not in GAMMES
 const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[]};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -815,7 +816,7 @@ function setTab(tab,sub){
   if(tab==="orders")S.subTab=sub||S.subTab||"articles";
   const titles={
     dashboard:"Tableau de bord",new_order:"Nouvelle commande",orders:S.subTab==="articles"?"Articles commandés":"Commandes clients",
-    launch:"Lancement OF",planning:"Planning semaine",apurement:"Apurement & Clôture",bons:"Bons d'entrée magasin",pending:"Demandes web clients",params:"Paramètres — Gammes & Temps standards"
+    launch:"Lancement OF",planning:"Planning semaine",apurement:"Apurement & Clôture",bons:"Bons d'entrée magasin",pending:"Demandes web clients",params:"Paramètres — Gammes & Temps standards",declarations:"Déclarations de production"
   };
   document.getElementById("page-title").textContent=titles[tab]||tab;
   document.querySelectorAll(".nav-item[data-tab],.bn-item[data-tab]").forEach(b=>{
@@ -1045,30 +1046,27 @@ function renderNewOrder(){
           </div>
           <div class="mlc-body${hasData?" open":""}" id="mlc-body-${l.id}">
             <div class="mlc-row"><label>Référence</label>
-              <select data-lid="${l.id}" data-lf="ref" class="ref-sel">${refsOpts(l.ref)}</select></div>
+              <select onchange="mlcSet(${l.id},'ref',this.value)" class="ref-sel">${refsOpts(l.ref)}</select></div>
             <div class="mlc-2col">
               <div class="mlc-row"><label>Dimension</label>
-                <select data-lid="${l.id}" data-lf="dim" class="dim-sel" style="display:${false?"none":"block"}">${dimsOpts(l.dim,l.ref)}</select>
+                <select onchange="mlcSet(${l.id},'dim',this.value)" class="dim-sel" id="mlc-dim-${l.id}">${dimsOpts(l.dim,l.ref)}</select>
               </div>
             </div>
             <div class="mlc-row"><label>Couleur</label>
-              <select data-lid="${l.id}" data-lf="color" class="color-inp">${colorsOpts(l.color)}</select>
-              <input type="text" data-lid="${l.id}" data-lf="colorCustom" class="color-custom" value="${esc(l.colorCustom||"")}" placeholder="Saisir la couleur…" style="margin-top:6px;display:${isPerso?"block":"none"}">
+              <select onchange="mlcSet(${l.id},'color',this.value)" class="color-inp">${colorsOpts(l.color)}</select>
+              <input type="text" onchange="mlcSet(${l.id},'colorCustom',this.value)" value="${esc(l.colorCustom||"")}" placeholder="Saisir la couleur…" style="margin-top:6px;display:${isPerso?"block":"none"}">
             </div>
             <div class="mlc-row"><label>Désignation</label>
-              <input type="text" data-lid="${l.id}" data-lf="designation" class="desig-inp" value="${esc(l.designation||buildDesignation(l.ref,l.dim,"","",l.colorCustom))}" readonly style="background:var(--surface2);color:var(--text2)">
+              <input type="text" id="mlc-desig-${l.id}" value="${esc(l.designation||buildDesignation(l.ref,l.dim,"","",l.colorCustom))}" readonly style="background:var(--surface2);color:var(--text2)">
             </div>
             <div class="mlc-2col">
               <div class="mlc-row"><label>Quantité (paquets)</label>
-                <input type="number" data-lid="${l.id}" data-lf="qty" value="${l.qty}" min="0" class="qty-input" style="font-size:16px"></div>
+                <input type="number" oninput="mlcSet(${l.id},'qty',this.value)" value="${l.qty}" min="0" style="font-size:16px"></div>
               <div class="mlc-row"><label>Prix tarif / pcs</label>
-                <input type="number" data-lid="${l.id}" data-lf="prixTarif" value="${l.prixTarif||""}" step="0.001" min="0" class="prix-input"></div>
+                <input type="number" oninput="mlcSet(${l.id},'prixTarif',this.value)" value="${l.prixTarif||""}" step="0.001" min="0"></div>
             </div>
             <div class="mlc-computed">
-              <span>Nb pièces</span><span class="nb-pcs">${nbPcs>0?nbPcs.toLocaleString("fr-FR")+" pcs":"—"}</span>
-            </div>
-            <div class="mlc-computed" style="margin-top:6px">
-              <span>Total HT</span><span class="line-total-ht">${totalHT>0?totalHT.toFixed(3)+" TND":"—"}</span>
+              <span>Nb pièces</span><span id="mlc-nb-${l.id}">${nbPcs>0?nbPcs.toLocaleString("fr-FR")+" pcs":"—"}</span>
             </div>
           </div>
         </div>`;
@@ -2560,6 +2558,7 @@ function render(){
     else if(S.tab==="bons")el.innerHTML=renderBons();
     else if(S.tab==="pending")el.innerHTML=renderPending();
     else if(S.tab==="params")el.innerHTML=renderParams();
+    else if(S.tab==="declarations")el.innerHTML=renderDeclarations();
   }catch(err){
     console.error("Render error ["+S.tab+"]:",err);
     el.innerHTML=`<div class="card" style="border-color:var(--red)"><div style="color:var(--red);font-weight:700;margin-bottom:8px">⚠️ Erreur d'affichage</div><pre style="font-size:11px;color:var(--text2);white-space:pre-wrap">${String(err)}</pre></div>`;
@@ -3159,6 +3158,39 @@ function sendSlackNotif(order,source){
 }
 
 // Set webhook URL (called after user provides it)
+function mlcSet(lid,field,val){
+  const line=S.form.lines.find(l=>l.id===lid);
+  if(!line)return;
+  line[field]=val;
+  // Auto-update dim options when ref changes
+  if(field==="ref"){
+    line.dim="";line.prixTarif="";line.designation="";
+    const dimSel=document.getElementById("mlc-dim-"+lid);
+    if(dimSel)dimSel.innerHTML=dimsOpts("",val);
+  }
+  // Update prix tarif when ref or dim changes
+  if(field==="ref"||field==="dim"){
+    const pt=getPriceFromMatrix(line.ref,line.dim,line.color)||
+      (PRIX_TARIF&&PRIX_TARIF[line.ref+"_"+line.dim])||"";
+    if(pt!==null&&pt!=="")line.prixTarif=pt;
+    const desig=buildDesignation(line.ref,line.dim,line.color,"",line.colorCustom);
+    line.designation=desig;
+    const desEl=document.getElementById("mlc-desig-"+lid);
+    if(desEl)desEl.value=desig;
+  }
+  // Update nb pcs display
+  const nb=(parseFloat(line.qty)||0)*25;
+  const nbEl=document.getElementById("mlc-nb-"+lid);
+  if(nbEl)nbEl.textContent=nb>0?nb.toLocaleString("fr-FR")+" pcs":"—";
+  // Update card header summary
+  const card=document.getElementById("mlc-"+lid);
+  if(card){
+    const sum=card.querySelector(".mlc-summary");
+    if(sum&&(line.ref||line.qty)){
+      sum.textContent=(line.ref||"")+(line.dim?" "+line.dim+"cm":"")+(line.qty?" — "+line.qty+" pqts":"");
+    }
+  }
+}
 function toggleMlc(lid){
   const body=document.getElementById("mlc-body-"+lid);
   if(body)body.classList.toggle("open");
@@ -3184,6 +3216,276 @@ function setSlackWebhook(url){
   alert("✅ Webhook Slack enregistré.");
 }
 // ────────────────────────────────────────────────────────────────────────────
+
+
+// ═══════════════════════════════════════════
+// ─── DÉCLARATIONS DE PRODUCTION ─────────────
+// ═══════════════════════════════════════════
+
+const CAUSES_NC=["Rayure","Déformation","Mauvaise coupe","Bavure","Défaut peinture","Trou mal percé","Autre"];
+const OPERATORS=["Ali","Mohamed","Amine","Walid","Sami","Autre"];
+
+function emptyDeclForm(){
+  return{
+    date:todayStr(),
+    wsId:"",
+    ofId:"",
+    operator:"",
+    operation:"",
+    lines:[{id:1,ref:"",dim:"",qtyOK:0,qtyNC:0,causeNC:""}],
+    notes:"",
+  };
+}
+
+function dlSet(lid,field,val){
+  if(!S.declForm)return;
+  const line=S.declForm.lines.find(l=>l.id===lid);
+  if(line)line[field]=val;
+}
+function newDecl(){S.declForm=emptyDeclForm();render();}
+function cancelDecl(){S.declForm=null;render();}
+
+function addDeclLine(){
+  if(!S.declForm)return;
+  const ids=S.declForm.lines.map(l=>l.id);
+  const newId=Math.max(...ids,0)+1;
+  S.declForm.lines.push({id:newId,ref:"",dim:"",qtyOK:0,qtyNC:0,causeNC:""});
+  render();
+}
+function removeDeclLine(id){
+  if(!S.declForm||S.declForm.lines.length<=1)return;
+  S.declForm.lines=S.declForm.lines.filter(l=>l.id!==id);
+  render();
+}
+
+function getDeclOFOptions(){
+  return S.ofs.filter(o=>o.status==="LANCÉ"||o.status==="EN_COURS"||!o.status);
+}
+
+function getDeclOperations(){
+  if(!S.declForm||!S.declForm.ofId)return[];
+  const of=S.ofs.find(o=>o.id===S.declForm.ofId);
+  if(!of)return[];
+  // Get postes from OF groups
+  const postes=new Set();
+  (of.groups||[]).forEach(g=>(g.postes||[]).forEach(p=>postes.add(p)));
+  if(!postes.size){
+    // fallback: get from GAMMES
+    const ref=of.ref||(of.groups&&of.groups[0]&&of.groups[0].ref);
+    const gamme=of.gamme||(of.groups&&of.groups[0]&&of.groups[0].gamme);
+    if(ref&&gamme&&GAMMES[ref]&&GAMMES[ref][gamme]){
+      GAMMES[ref][gamme].forEach(p=>postes.add(p));
+    }
+  }
+  return[...postes];
+}
+
+function getDeclRefs(){
+  if(!S.declForm||!S.declForm.ofId)return[];
+  const of=S.ofs.find(o=>o.id===S.declForm.ofId);
+  if(!of)return[];
+  const refs=new Set();
+  (of.groups||[]).forEach(g=>{
+    if(g.ref)refs.add(g.ref);
+    (g.lines||[]).forEach(l=>{if(l.ref)refs.add(l.ref);});
+  });
+  if(!refs.size&&of.ref)refs.add(of.ref);
+  return[...refs];
+}
+
+function saveDecl(){
+  if(!S.declForm)return;
+  const f=S.declForm;
+  if(!f.wsId||!f.ofId||!f.operator||!f.operation){
+    alert("Veuillez remplir : poste, OF, opérateur et opération.");return;
+  }
+  const validLines=f.lines.filter(l=>l.ref&&(l.qtyOK>0||l.qtyNC>0));
+  if(!validLines.length){alert("Veuillez saisir au moins une ligne avec une quantité.");return;}
+  const id="DEC-"+Date.now();
+  const decl={
+    id,date:f.date,wsId:f.wsId,ofId:f.ofId,
+    operator:f.operator,operation:f.operation,
+    lines:validLines,notes:f.notes||"",
+    createdAt:new Date().toISOString(),
+    status:"VALIDÉE"
+  };
+  S.declarations.unshift(decl);
+  if(db)db.ref("declarations/"+id).set(decl);
+  S.declForm=null;
+  render();
+}
+
+function deleteDecl(id){
+  if(!confirm("Supprimer cette déclaration ?"))return;
+  S.declarations=S.declarations.filter(d=>d.id!==id);
+  if(db)db.ref("declarations/"+id).remove();
+  render();
+}
+
+function renderDeclarations(){
+  const form=S.declForm;
+  let h="";
+
+  if(form){
+    // ── FORM ──
+    const ws=getWS();
+    const ofs=getDeclOFOptions();
+    const operations=getDeclOperations();
+    const refs=getDeclRefs();
+
+    h+=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <button onclick="cancelDecl()" class="btn btn-sm"><i class="ti ti-arrow-left"></i>Retour</button>
+      <span style="font-weight:700;font-size:15px"><i class="ti ti-clipboard-plus"></i> Nouvelle déclaration</span>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-title"><i class="ti ti-info-circle"></i>En-tête</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" value="${form.date}" onchange="S.declForm.date=this.value">
+        </div>
+        <div class="form-group">
+          <label>Poste de travail *</label>
+          <select onchange="S.declForm.wsId=this.value">
+            <option value="">— Choisir —</option>
+            ${ws.map(w=>`<option value="${w.id}"${form.wsId===w.id?" selected":""}>${esc(w.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Ordre de fabrication *</label>
+          <select onchange="S.declForm.ofId=this.value;S.declForm.operation='';S.declForm.lines=[{id:1,ref:'',dim:'',qtyOK:0,qtyNC:0,causeNC:''}];render()">
+            <option value="">— Choisir un OF —</option>
+            ${ofs.map(o=>`<option value="${o.id}"${form.ofId===o.id?" selected":""}>${o.id}${o.ref?" — "+o.ref:""}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Opérateur *</label>
+          <select onchange="if(this.value!=='__autre__')S.declForm.operator=this.value;else S.declForm.operator=''" id="decl-op-sel">
+            <option value="">— Choisir —</option>
+            ${OPERATORS.map(op=>`<option value="${op==="Autre"?"__autre__":op}"${form.operator===op?" selected":""}>${op}</option>`).join("")}
+          </select>
+          <input type="text" placeholder="Nom de l'opérateur" value="${esc(form.operator||"")}" oninput="S.declForm.operator=this.value" style="margin-top:6px">
+        </div>
+        <div class="form-group">
+          <label>Opération *</label>
+          <select onchange="S.declForm.operation=this.value">
+            <option value="">— Choisir —</option>
+            ${operations.map(op=>`<option value="${op}"${form.operation===op?" selected":""}>${op}</option>`).join("")}
+            ${!operations.length?`<option disabled>Sélectionnez d'abord un OF</option>`:""}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px;padding:0;overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-weight:700;font-size:13px"><i class="ti ti-list-details"></i> Lignes produites</span>
+        <button onclick="addDeclLine()" class="btn btn-sm"><i class="ti ti-plus"></i>Ajouter une ligne</button>
+      </div>
+      <div class="table-scroll">
+      <table style="min-width:620px">
+        <thead><tr>
+          <th>Référence</th><th>Dim.</th>
+          <th style="text-align:right;color:var(--teal)">Qté OK (pcs)</th>
+          <th style="text-align:right;color:#A32D2D">Qté NC (pcs)</th>
+          <th>Cause NC</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody>
+          ${form.lines.map(l=>`<tr>
+            <td><select onchange="dlSet(${l.id},'ref',this.value)" style="font-size:12px">
+              <option value="">—</option>
+              ${refs.length?refs.map(r=>`<option value="${r}"${l.ref===r?" selected":""}>${r}</option>`).join(""):
+                Object.keys(GAMMES).map(r=>`<option value="${r}"${l.ref===r?" selected":""}>${r}</option>`).join("")}
+            </select></td>
+            <td><select onchange="dlSet(${l.id},'dim',this.value)" style="font-size:12px">
+              <option value="">—</option>
+              ${DIMS.filter(d=>d).map(d=>`<option value="${d}"${l.dim===d?" selected":""}>${d} cm</option>`).join("")}
+            </select></td>
+            <td><input type="number" value="${l.qtyOK||""}" min="0"
+              oninput="dlSet(${l.id},'qtyOK',parseFloat(this.value)||0)"
+              style="font-size:13px;text-align:right;width:80px;color:var(--teal);font-weight:700"></td>
+            <td><input type="number" value="${l.qtyNC||""}" min="0"
+              oninput="dlSet(${l.id},'qtyNC',parseFloat(this.value)||0)"
+              style="font-size:13px;text-align:right;width:70px;color:#A32D2D"></td>
+            <td><select onchange="dlSet(${l.id},'causeNC',this.value)" style="font-size:12px">
+              <option value="">—</option>
+              ${CAUSES_NC.map(c=>`<option value="${c}"${l.causeNC===c?" selected":""}>${c}</option>`).join("")}
+            </select></td>
+            <td><button onclick="removeDeclLine(${l.id})" style="padding:3px 7px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:11px;cursor:pointer"><i class="ti ti-x"></i></button></td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Notes / observations</label>
+      <textarea rows="2" oninput="S.declForm.notes=this.value" placeholder="Observations, problèmes rencontrés…" style="width:100%;font-size:13px">${esc(form.notes||"")}</textarea>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button onclick="cancelDecl()" class="btn">Annuler</button>
+      <button onclick="saveDecl()" class="btn btn-primary" style="width:auto;padding:10px 24px"><i class="ti ti-check"></i>Valider la déclaration</button>
+    </div>`;
+
+  } else {
+    // ── LIST ──
+    const decls=S.declarations||[];
+    h+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="font-size:13px;color:var(--text2)">${decls.length} déclaration${decls.length>1?"s":""}</div>
+      <button onclick="newDecl()" class="btn btn-primary" style="width:auto;padding:8px 18px"><i class="ti ti-plus"></i>Nouvelle déclaration</button>
+    </div>`;
+
+    if(!decls.length){
+      h+=`<div class="card"><div class="empty"><i class="ti ti-clipboard-list" style="font-size:32px"></i><p>Aucune déclaration. Cliquez "Nouvelle déclaration" pour commencer.</p></div></div>`;
+    } else {
+      h+=decls.map(d=>{
+        const ws=getWS().find(w=>w.id===d.wsId);
+        const totalOK=d.lines.reduce((s,l)=>s+(parseFloat(l.qtyOK)||0),0);
+        const totalNC=d.lines.reduce((s,l)=>s+(parseFloat(l.qtyNC)||0),0);
+        return`<div class="card" style="margin-bottom:10px">
+          <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                <span style="font-weight:700;font-size:14px">${d.id}</span>
+                <span style="font-size:11px;color:var(--text2)">•</span>
+                <span style="font-size:12px;font-weight:600;color:var(--teal)">${d.ofId}</span>
+                <span style="font-size:11px;color:var(--text2)">•</span>
+                <span style="font-size:12px">${d.operation}</span>
+              </div>
+              <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin-bottom:8px">
+                <span><i class="ti ti-calendar"></i> ${d.date}</span>
+                <span><i class="ti ti-server"></i> ${ws?ws.name:d.wsId}</span>
+                <span><i class="ti ti-user"></i> ${esc(d.operator)}</span>
+              </div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap">
+                ${d.lines.filter(l=>l.ref).map(l=>`
+                <div style="background:var(--surface2);border-radius:var(--r);padding:5px 10px;font-size:12px">
+                  <strong>${l.ref}${l.dim?" "+l.dim+"cm":""}</strong>
+                  <span style="color:var(--teal);font-weight:700;margin-left:6px">${(parseFloat(l.qtyOK)||0).toLocaleString("fr-FR")} ✓</span>
+                  ${parseFloat(l.qtyNC)>0?`<span style="color:#A32D2D;font-weight:700;margin-left:4px">${l.qtyNC} ✗</span>`:""}
+                </div>`).join("")}
+              </div>
+              ${d.notes?`<div style="font-size:12px;color:var(--text3);margin-top:6px;font-style:italic">${esc(d.notes)}</div>`:""}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <div style="text-align:right">
+                <div style="font-size:18px;font-weight:700;color:var(--teal)">${totalOK.toLocaleString("fr-FR")} pcs</div>
+                ${totalNC>0?`<div style="font-size:12px;color:#A32D2D;font-weight:600">${totalNC} NC</div>`:""}
+              </div>
+              <button onclick="deleteDecl('${d.id}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:11px;cursor:pointer"><i class="ti ti-trash"></i></button>
+            </div>
+          </div>
+        </div>`;
+      }).join("")
+    }
+  }
+
+  return h;
+}
 
 // ═══════════════════════════════════════════
 // ─── PARAMÈTRES ─────────────────────────────
@@ -3710,6 +4012,7 @@ loadAll().then(()=>{
     db.ref("standards").once("value").then(s=>{S.standards=s.val()||{};}).catch(()=>{});
     db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
     db.ref("priceMatrices").once("value").then(s=>{if(s.val())S.priceMatrices=Object.values(s.val()).filter(Boolean);}).catch(()=>{});
+    db.ref("declarations").once("value").then(s=>{if(s.val())S.declarations=Object.values(s.val()).filter(Boolean);}).catch(()=>{});
     db.ref("priceMatrices").once("value").then(s=>{
       const v=s.val();
       S.priceMatrices=Array.isArray(v)?v:(v?Object.values(v):[]);
