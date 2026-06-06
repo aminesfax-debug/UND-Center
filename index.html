@@ -1536,7 +1536,7 @@ function genPdfOrder(oid){
   '</div>');
   w.document.write('<table><thead><tr><th>#</th><th>Désignation</th><th style="text-align:right">Nb pcs</th><th style="text-align:right">P.Tarif/pcs</th><th style="text-align:center">Remise</th><th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th></tr></thead><tbody>'+lineRows+bonusRow+'</tbody></table>');
   // Facade detail section
-  var facLines=lines.filter(function(l){return l.ref&&(l.ref.startsWith("F-")||l.ref.startsWith("SKIN-"))&&l.facadeConfig;});
+  var facLines=lines.filter(function(l){return l.ref&&(l.ref.startsWith("F-")||l.ref.startsWith("SKIN-"));});
   if(facLines.length>0){
     var facDetail='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:bold;border-bottom:2px solid #17171A;padding-bottom:6px;margin-bottom:10px">Détail des façades</div>';
     facLines.forEach(function(l,i){
@@ -3200,7 +3200,7 @@ function genPdfFromPending(id){
   '</div>');
   w.document.write('<table><thead><tr><th>#</th><th>Désignation</th><th style="text-align:right">Nb pcs</th><th style="text-align:right">P.Tarif/pcs</th><th style="text-align:center">Remise</th><th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th></tr></thead><tbody>'+lineRows+bonusRow+'</tbody></table>');
   // Facade detail section
-  var facLines=lines.filter(function(l){return l.ref&&(l.ref.startsWith("F-")||l.ref.startsWith("SKIN-"))&&l.facadeConfig;});
+  var facLines=lines.filter(function(l){return l.ref&&(l.ref.startsWith("F-")||l.ref.startsWith("SKIN-"));});
   if(facLines.length>0){
     var facDetail='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:bold;border-bottom:2px solid #17171A;padding-bottom:6px;margin-bottom:10px">Détail des façades</div>';
     facLines.forEach(function(l,i){
@@ -3318,7 +3318,11 @@ function saveFacadeConf(){
   const w=parseFloat(cfg.width)||0;
   const h=parseFloat(cfg.height)||0;
   const autoPrice=getFacadePrice(cfg.model,w,h);
-  // Auto-calculate hinge positions if not set
+  const GLASS_PRICE_M2_SAVE=115;
+  const glassAreaSave=cfg.glass?.has&&w>0&&h>0?(w*h/1000000):0;
+  const glassPriceSave=glassAreaSave>0?Math.ceil(glassAreaSave*GLASS_PRICE_M2_SAVE):0;
+  const remiseSave=parseFloat(cfg.remise)||0;
+  const totalUnit=autoPrice!==null?Math.round(((autoPrice+glassPriceSave)*(1-remiseSave/100))*1000)/1000:null;
   const hingeCount=h>0?calcHingeCount(h):0;
   const hingePos=(cfg.hingePositions&&cfg.hingePositions.length===hingeCount&&hingeCount>0)?
     cfg.hingePositions : (h>0?calcHingePositions(hingeCount,h):[]);
@@ -3331,8 +3335,8 @@ function saveFacadeConf(){
     largeur:cfg.width?String(cfg.width):"",
     color:cfg.color||"",
     unit:"pcs",
-    prixTarif:autoPrice!==null?autoPrice:"",
-    remise:0,
+    prixTarif:totalUnit!==null?totalUnit:(autoPrice!==null?autoPrice:""),
+    remise:remiseSave,
     hingesSupplied:cfg.hingesSupplied!==false,
     hingePositions:hingePos,
     hingeCount:hingeCount,
@@ -3356,16 +3360,46 @@ function renderFacadeConfigurator(){
   const hingePositions=cfg.hingePositions||[];
   const desig=buildFacadeDesignation(cfg);
 
+  const GLASS_PRICE_M2=115; // TND/m²
+  const w_mm=parseFloat(cfg.width)||0;
+  const h_mm=parseFloat(cfg.height)||0;
+  const basePrice=getFacadePrice(cfg.model,w_mm,h_mm);
+  const glassArea=cfg.glass?.has&&w_mm>0&&h_mm>0?(w_mm*h_mm/1000000):0;
+  const glassPrice=glassArea>0?Math.ceil(glassArea*GLASS_PRICE_M2):0;
+  const remise=parseFloat(cfg.remise)||0;
+  const totalUnit=basePrice!==null?Math.round(((basePrice+glassPrice)*(1-remise/100))*1000)/1000:null;
+  const qty=parseInt(cfg.qty)||1;
+  const totalHT=totalUnit!==null?Math.round(totalUnit*qty*1000)/1000:null;
+
   return`
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
     <button class="btn btn-sm" onclick="S.facadeConf={open:false,editId:null,cfg:null};render()"><i class="ti ti-arrow-left"></i>Annuler</button>
     <span style="font-weight:700;font-size:15px">Configurateur façade — Ligne ${lineId}</span>
   </div>
 
-  <!-- Désignation auto -->
-  <div style="background:#17171A;color:#FFF;border-radius:var(--rl);padding:14px 18px;margin-bottom:16px;font-size:13px">
-    <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Désignation générée</div>
-    <div style="font-weight:600;font-size:14px">${esc(desig||"—")}</div>
+  <!-- Désignation + Prix temps réel -->
+  <div style="background:#17171A;color:#FFF;border-radius:var(--rl);padding:14px 18px;margin-bottom:16px">
+    <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Désignation</div>
+    <div style="font-weight:600;font-size:14px;margin-bottom:${basePrice!==null?"10px":"0"}">${esc(desig||"—")}</div>
+    ${basePrice!==null?`<div style="border-top:1px solid #333;padding-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;font-size:12px">
+      <div><div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:2px">Prix façade</div><div style="font-weight:700;color:#1D9E75;font-size:15px">${basePrice.toFixed(3)} TND</div></div>
+      ${glassPrice>0?`<div><div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:2px">Verre (${glassArea.toFixed(3)} m²)</div><div style="font-weight:700;color:#1D9E75;font-size:15px">+ ${glassPrice.toFixed(3)} TND</div></div>`:""}
+      ${remise>0?`<div><div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:2px">Remise</div><div style="font-weight:700;color:#FFC107;font-size:15px">−${remise}%</div></div>`:""}
+      <div><div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:2px">Prix unitaire net</div><div style="font-weight:700;color:#FFF;font-size:16px">${totalUnit!==null?totalUnit.toFixed(3)+" TND":"—"}</div></div>
+      ${qty>1?`<div><div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:2px">Total HT (×${qty})</div><div style="font-weight:700;color:#1D9E75;font-size:16px">${totalHT!==null?totalHT.toFixed(3)+" TND":"—"}</div></div>`:""}
+    </div>`:cfg.model==="F-500"||cfg.model==="F-501"?`<div style="margin-top:8px;font-size:11px;color:#888">Saisissez largeur et hauteur pour voir le prix</div>`:""}
+  </div>
+
+  <!-- Remise -->
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title"><i class="ti ti-tag"></i>Remise</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="number" value="${remise||""}" min="0" max="100" step="1" placeholder="0"
+        oninput="S.facadeConf.cfg.remise=parseFloat(this.value)||0;render()"
+        style="width:90px;font-size:16px;text-align:center;font-weight:700">
+      <span style="font-size:15px;font-weight:600;color:var(--text2)">%</span>
+      ${remise>0?`<span style="font-size:13px;color:var(--teal);font-weight:600">→ Prix net après remise : ${totalUnit!==null?totalUnit.toFixed(3)+" TND":"—"}</span>`:""}
+    </div>
   </div>
 
   <!-- Modèle -->
@@ -3418,7 +3452,7 @@ function renderFacadeConfigurator(){
       <div class="form-group">
         <label>Quantité</label>
         <input type="number" value="${cfg.qty||1}" min="1"
-          oninput="S.facadeConf.cfg.qty=parseInt(this.value)||1" style="font-size:16px">
+          oninput="S.facadeConf.cfg.qty=parseInt(this.value)||1;render()" style="font-size:16px">
       </div>
     </div>
   </div>
