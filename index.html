@@ -471,7 +471,7 @@ const STATUSES={
 const PRIOS={"URGENT":{pill:"pr-urgent"},"NORMAL":{pill:"pr-normal"},"FAIBLE":{pill:"pr-low"}};
 const K_ORDERS="prd_orders_v5",K_PLAN="prd_plan_v5",K_BONS="prd_bons_v5",K_OFS="prd_ofs_v1";
 
-const GAMMES={
+let GAMMES={
   "P-215":{
     "Automatique":["Découpe presse","Ébavurage","Peinture","Emballage"],
     "Semi-Automatique":["Coupe","Reprise Presse","Perçage","Ébavurage","Peinture","Emballage"]
@@ -526,7 +526,7 @@ const GAMMES={
 // Default postes for any ref not in GAMMES
 const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null,planProposal:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -1540,20 +1540,23 @@ function genPdfOrder(oid){
   if(facLines.length>0){
     var facDetail='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:bold;border-bottom:2px solid #17171A;padding-bottom:6px;margin-bottom:10px">Détail des façades</div>';
     facLines.forEach(function(l,i){
-      var cfg=l.facadeConfig;
-      var pos=cfg.hingePositions||[];
-      var hingeType=cfg.hingeType||"";
-      var supplied=cfg.hingesSupplied!==false;
+      var cfg=l.facadeConfig||{};
+      var w_dim=cfg.width||cfg.w||l.largeur||"—";
+      var h_dim=cfg.height||cfg.h||l.dim||"—";
+      var pos=(l.hingePositions&&l.hingePositions.length?l.hingePositions:cfg.hingePositions)||[];
+      var hingeType=l.hingeType||cfg.hingeType||"";
+      var supplied=l.hingesSupplied!==false&&cfg.hingesSupplied!==false;
+      var colorVal=l.color||(cfg.color==="Personnalisée"?cfg.cc:cfg.color)||"";
       facDetail+='<div style="border:1px solid #DDD;border-radius:6px;padding:12px;margin-bottom:10px;break-inside:avoid">';
       facDetail+='<div style="font-weight:bold;font-size:12px;margin-bottom:8px;color:#17171A">'+(i+1)+'. '+esc(l.designation||l.ref)+'</div>';
       facDetail+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;font-size:11px">';
-      facDetail+='<div><span style="color:#666">Dimensions :</span> <strong>'+(cfg.w||"—")+'×'+(cfg.h||"—")+'mm</strong></div>';
+      facDetail+='<div><span style="color:#666">Dimensions :</span> <strong>'+w_dim+'×'+h_dim+'mm</strong></div>';
       facDetail+='<div><span style="color:#666">Quantité :</span> <strong>'+(l.qty||1)+' pcs</strong></div>';
-      if(cfg.color||cfg.cc){facDetail+='<div><span style="color:#666">Couleur :</span> <strong>'+esc(cfg.color==="Personnalisée"?cfg.cc:cfg.color)+'</strong></div>';}
+      if(colorVal){facDetail+='<div><span style="color:#666">Couleur :</span> <strong>'+esc(colorVal)+'</strong></div>';}
       if(cfg.glass&&cfg.glass.has){facDetail+='<div><span style="color:#666">Verre :</span> <strong>'+esc(cfg.glass.type||"")+'</strong></div>';}
-      if(cfg.hdl&&(cfg.hdl.has||cfg.handle==="fixed")){
-        var hdlStr=cfg.handle==="fixed"?"Poignée fixe incluse":("Poignée en "+esc(cfg.hdl.type||"U")+" — "+esc(cfg.hdl.orient||"Horizontal"));
-        facDetail+='<div><span style="color:#666">Poignée :</span> <strong>'+hdlStr+'</strong></div>';
+      if(cfg.hdl&&cfg.hdl.has){
+        var hdlStr="Poignée en "+(cfg.hdl.type||"U")+" — "+(cfg.hdl.orient||"Horizontal");
+        facDetail+='<div><span style="color:#666">Poignée :</span> <strong>'+esc(hdlStr)+'</strong></div>';
       }
       facDetail+='</div>';
       // Hinge positions
@@ -2021,13 +2024,10 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
   if(db)db.ref("ofs/"+pfId+"/planningProposal").set(slots);
 
   S.standardsForm=null;
-  // Navigate to planning at the right week
-  if(slots[0]&&slots[0].start){
-    const startD=new Date(slots[0].start+"T00:00:00");
-    const today=new Date();today.setHours(0,0,0,0);
-    const diffDays=Math.round((startD-today)/86400000);
-    S.weekOff=Math.floor(diffDays/7);
-  }
+
+  // Show interactive proposal screen
+  S.planProposal={pfId,ref,slots,date:startDate};
+  if(slots[0]&&slots[0].start)S.planDate=slots[0].start;
   setTab("planning");
 }
 
@@ -2159,8 +2159,190 @@ function planColorForOf(ofId){
   return colors[h%colors.length];
 }
 
+
+// ═══════════════════════════════════════════
+// ─── PROPOSITION DE PLANNING INTERACTIVE ──
+// ═══════════════════════════════════════════
+
+let _dragSlot=null; // slot being dragged
+
+function renderPlanProposal(){
+  const{pfId,ref,slots}=S.planProposal;
+  const ws=getWS();
+
+  // Build editable slots state
+  if(!S.planProposal.editSlots){
+    S.planProposal.editSlots=slots.filter(s=>s.start&&s.wsId).map(s=>({...s}));
+  }
+  const editSlots=S.planProposal.editSlots;
+
+  let h=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <button onclick="S.planProposal=null;render()" class="btn btn-sm"><i class="ti ti-arrow-left"></i>Retour</button>
+    <span style="font-weight:700;font-size:15px">📅 Proposition de planning — ${pfId} (${ref})</span>
+    <button onclick="validatePlanProposal()" class="btn btn-primary" style="width:auto;padding:8px 18px;margin-left:auto">
+      <i class="ti ti-check"></i>Valider et enregistrer
+    </button>
+  </div>
+
+  <div style="background:var(--teal-bg);border:1px solid var(--teal);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--teal)">
+    <strong>Glissez</strong> les opérations pour changer l'heure ou le poste. Cliquez sur une opération pour modifier sa date.
+  </div>`;
+
+  // Get all unique dates in proposal
+  const dates=[...new Set(editSlots.map(s=>s.start))].sort();
+
+  dates.forEach(dateStr=>{
+    const date=new Date(dateStr+"T00:00:00");
+    const dayNames=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
+    const dow=date.getDay();
+    const isSat=dow===6;
+    const dayLabel=dayNames[dow]+" "+date.getDate()+"/"+String(date.getMonth()+1).padStart(2,"0");
+    const slots4Day=editSlots.filter(s=>s.start===dateStr);
+    const s1End=isSat?13*60:15*60;
+    const s2End=isSat?18*60:23*60;
+    const allSlots=[];
+    for(let t=8*60;t<s2End;t+=30)allSlots.push(t);
+
+    h+=`<div style="margin-bottom:16px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">${dayLabel}</div>
+      <div style="overflow-x:auto">
+      <table style="border-collapse:collapse;min-width:${100+allSlots.length*52}px;font-size:11px">
+        <thead><tr>
+          <th style="min-width:130px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);position:sticky;left:0;z-index:2">Poste</th>
+          ${allSlots.map(t=>`<th style="min-width:50px;padding:4px 2px;text-align:center;background:${t<s1End?SHIFT1_COLOR:SHIFT2_COLOR};border:1px solid var(--border);font-weight:${t%60===0?"700":"400"};font-size:10px;color:${t<s1End?"#0F6E56":"#534AB7"}">${minsToTime(t)}</th>`).join("")}
+        </tr></thead>
+        <tbody>
+          ${ws.map(w=>{
+            const wsSlots=slots4Day.filter(s=>s.wsId===w.id);
+            return`<tr>
+              <td style="padding:6px 10px;border:1px solid var(--border);background:var(--surface2);font-weight:600;position:sticky;left:0;z-index:1;white-space:nowrap">${esc(w.name)}</td>
+              ${(()=>{
+                const cells=[];
+                let skipCount=0;
+                allSlots.forEach((t,ti)=>{
+                  if(skipCount>0){skipCount--;return;}
+                  const slotAtTime=wsSlots.find(s=>{
+                    const slotMins=parseInt(s.timeKey?.slice(0,2)||"0")*60+parseInt(s.timeKey?.slice(2)||"0");
+                    return slotMins===t;
+                  });
+                  if(slotAtTime){
+                    const dur=slotAtTime.nbDays&&slotAtTime.nbDays>0?Math.max(1,Math.round((slotAtTime.totalSec||slotAtTime.totalMin*60||0)/3600/8*16)):1;
+                    const span=Math.min(dur,allSlots.length-ti);
+                    skipCount=span-1;
+                    const bg=planColorForOf(pfId);
+                    const slotIdx=editSlots.indexOf(slotAtTime);
+                    cells.push(`<td colspan="${span}" style="padding:3px;border:1px solid var(--border);background:${bg}"
+                      draggable="true"
+                      ondragstart="planDragStart(event,${slotIdx})"
+                      ondragend="planDragEnd(event)">
+                      <div style="background:${bg};border:2px solid rgba(0,0,0,.15);border-radius:4px;padding:4px 6px;cursor:grab;min-height:32px">
+                        <div style="font-weight:700;font-size:11px">${slotAtTime.poste}</div>
+                        <div style="font-size:10px;color:var(--text2)">${slotAtTime.totalMin||"?"} min</div>
+                      </div>
+                    </td>`);
+                  } else {
+                    cells.push(`<td style="border:1px solid var(--border);background:${t<s1End?SHIFT1_COLOR:SHIFT2_COLOR};padding:3px"
+                      ondragover="event.preventDefault()"
+                      ondrop="planDrop(event,'${w.id}','${dateStr}',${t})">
+                    </td>`);
+                  }
+                });
+                return cells.join("");
+              })()}
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table></div>
+    </div>`;
+  });
+
+  // List of slots with date pickers for easy editing
+  h+=`<div class="card">
+    <div class="card-title"><i class="ti ti-list-details"></i>Détail des opérations</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${editSlots.map((s,i)=>`<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+        <div>
+          <div style="font-weight:600;font-size:13px">${i+1}. ${s.poste}</div>
+          <div style="font-size:11px;color:var(--text2)">${s.wsId?(ws.find(w=>w.id===s.wsId)||{name:s.wsId}).name:"—"} — ${s.totalMin||"?"} min</div>
+        </div>
+        <div class="form-group">
+          <label style="font-size:10px;color:var(--text2)">Date</label>
+          <input type="date" value="${s.start||""}" onchange="S.planProposal.editSlots[${i}].start=this.value;render()" style="font-size:12px;padding:4px 8px">
+        </div>
+        <div class="form-group">
+          <label style="font-size:10px;color:var(--text2)">Poste</label>
+          <select onchange="S.planProposal.editSlots[${i}].wsId=this.value;render()" style="font-size:12px;padding:4px 8px">
+            ${ws.map(w=>`<option value="${w.id}"${s.wsId===w.id?" selected":""}>${esc(w.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-size:10px;color:var(--text2)">Heure début</label>
+          <select onchange="S.planProposal.editSlots[${i}].timeKey=this.value;render()" style="font-size:12px;padding:4px 8px">
+            ${Array.from({length:30},(_,k)=>8*60+k*30).map(t=>`<option value="${minsToKey(t)}"${s.timeKey===minsToKey(t)?" selected":""}>${minsToTime(t)}</option>`).join("")}
+          </select>
+        </div>
+      </div>`).join("")}
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button onclick="validatePlanProposal()" class="btn btn-primary" style="width:auto;padding:10px 24px">
+        <i class="ti ti-check"></i>Valider et enregistrer dans le planning
+      </button>
+    </div>
+  </div>`;
+
+  return h;
+}
+
+function planDragStart(event,slotIdx){
+  _dragSlot=slotIdx;
+  event.dataTransfer.effectAllowed="move";
+  event.target.style.opacity="0.5";
+}
+function planDragEnd(event){
+  event.target.style.opacity="1";
+  _dragSlot=null;
+}
+function planDrop(event,wsId,dateStr,timeMins){
+  event.preventDefault();
+  if(_dragSlot===null||!S.planProposal||!S.planProposal.editSlots)return;
+  S.planProposal.editSlots[_dragSlot].wsId=wsId;
+  S.planProposal.editSlots[_dragSlot].start=dateStr;
+  S.planProposal.editSlots[_dragSlot].timeKey=minsToKey(timeMins);
+  _dragSlot=null;
+  render();
+}
+
+function validatePlanProposal(){
+  if(!S.planProposal||!S.planProposal.editSlots)return;
+  const{pfId,ref}=S.planProposal;
+  const editSlots=S.planProposal.editSlots;
+  const updates={};
+
+  editSlots.forEach(s=>{
+    if(!s.start||!s.wsId)return;
+    const timeKey=s.timeKey||"0800";
+    const key=s.wsId+"_"+s.start+"_"+timeKey;
+    const totalMins=parseInt(timeKey.slice(0,2))*60+parseInt(timeKey.slice(2));
+    const dur=s.totalMin&&s.totalMin>0?Math.max(1,Math.ceil(s.totalMin/30)):1;
+    // Fill all 30-min slots for the duration
+    for(let i=0;i<dur;i++){
+      const t=totalMins+i*30;
+      const k=s.wsId+"_"+s.start+"_"+minsToKey(t);
+      S.plan[k]={ofId:pfId,notes:s.poste,duration:i===0?dur:0,proposed:false};
+      updates[k]={ofId:pfId,notes:s.poste,duration:i===0?dur:0};
+    }
+  });
+
+  if(db)db.ref("plan").update(updates);
+  S.planProposal=null;
+  if(editSlots[0])S.planDate=editSlots[0].start;
+  render();
+  alert("✅ Planning enregistré !");
+}
+
 function renderPlanning(){
   const ws=getWS();
+  if(S.planProposal)return renderPlanProposal();
   if(!S.planDate)S.planDate=todayStr();
   const selDate=S.planDate;
   const date=new Date(selDate+"T00:00:00");
@@ -3007,20 +3189,23 @@ function genPdfFromPending(id){
   if(facLines.length>0){
     var facDetail='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:bold;border-bottom:2px solid #17171A;padding-bottom:6px;margin-bottom:10px">Détail des façades</div>';
     facLines.forEach(function(l,i){
-      var cfg=l.facadeConfig;
-      var pos=cfg.hingePositions||[];
-      var hingeType=cfg.hingeType||"";
-      var supplied=cfg.hingesSupplied!==false;
+      var cfg=l.facadeConfig||{};
+      var w_dim=cfg.width||cfg.w||l.largeur||"—";
+      var h_dim=cfg.height||cfg.h||l.dim||"—";
+      var pos=(l.hingePositions&&l.hingePositions.length?l.hingePositions:cfg.hingePositions)||[];
+      var hingeType=l.hingeType||cfg.hingeType||"";
+      var supplied=l.hingesSupplied!==false&&cfg.hingesSupplied!==false;
+      var colorVal=l.color||(cfg.color==="Personnalisée"?cfg.cc:cfg.color)||"";
       facDetail+='<div style="border:1px solid #DDD;border-radius:6px;padding:12px;margin-bottom:10px;break-inside:avoid">';
       facDetail+='<div style="font-weight:bold;font-size:12px;margin-bottom:8px;color:#17171A">'+(i+1)+'. '+esc(l.designation||l.ref)+'</div>';
       facDetail+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;font-size:11px">';
-      facDetail+='<div><span style="color:#666">Dimensions :</span> <strong>'+(cfg.w||"—")+'×'+(cfg.h||"—")+'mm</strong></div>';
+      facDetail+='<div><span style="color:#666">Dimensions :</span> <strong>'+w_dim+'×'+h_dim+'mm</strong></div>';
       facDetail+='<div><span style="color:#666">Quantité :</span> <strong>'+(l.qty||1)+' pcs</strong></div>';
-      if(cfg.color||cfg.cc){facDetail+='<div><span style="color:#666">Couleur :</span> <strong>'+esc(cfg.color==="Personnalisée"?cfg.cc:cfg.color)+'</strong></div>';}
+      if(colorVal){facDetail+='<div><span style="color:#666">Couleur :</span> <strong>'+esc(colorVal)+'</strong></div>';}
       if(cfg.glass&&cfg.glass.has){facDetail+='<div><span style="color:#666">Verre :</span> <strong>'+esc(cfg.glass.type||"")+'</strong></div>';}
-      if(cfg.hdl&&(cfg.hdl.has||cfg.handle==="fixed")){
-        var hdlStr=cfg.handle==="fixed"?"Poignée fixe incluse":("Poignée en "+esc(cfg.hdl.type||"U")+" — "+esc(cfg.hdl.orient||"Horizontal"));
-        facDetail+='<div><span style="color:#666">Poignée :</span> <strong>'+hdlStr+'</strong></div>';
+      if(cfg.hdl&&cfg.hdl.has){
+        var hdlStr="Poignée en "+(cfg.hdl.type||"U")+" — "+(cfg.hdl.orient||"Horizontal");
+        facDetail+='<div><span style="color:#666">Poignée :</span> <strong>'+esc(hdlStr)+'</strong></div>';
       }
       facDetail+='</div>';
       // Hinge positions
@@ -3100,6 +3285,9 @@ function updateFacadeHingeCount(val){
 function saveFacadeConf(){
   if(!S.facadeConf||!S.facadeConf.open)return;
   const{editId,cfg}=S.facadeConf;
+  const w=parseFloat(cfg.width)||0;
+  const h=parseFloat(cfg.height)||0;
+  const autoPrice=getFacadePrice(cfg.model,w,h);
   const facadeLine={
     id:editId!==null?editId:"fac-"+Date.now(),
     ref:cfg.model,
@@ -3109,7 +3297,11 @@ function saveFacadeConf(){
     largeur:cfg.width?String(cfg.width):"",
     color:cfg.color||"",
     unit:"pcs",
-    prixTarif:"",
+    prixTarif:autoPrice!==null?autoPrice:"",
+    remise:0,
+    hingesSupplied:cfg.hingesSupplied!==false,
+    hingePositions:cfg.hingePositions||[],
+    hingeType:(FACADE_MODELS[cfg.model]||{}).hingeType||"",
     facadeConfig:JSON.parse(JSON.stringify(cfg)),
   };
   if(editId!==null){
@@ -3413,6 +3605,85 @@ function setSlackWebhook(url){
 }
 // ────────────────────────────────────────────────────────────────────────────
 
+
+
+// ═══════════════════════════════════════════
+// ─── PRIX FAÇADES ───────────────────────────
+// ═══════════════════════════════════════════
+
+const FA500_PRICES={
+  36:{60:67,70:72,80:78,90:83,100:88,120:99,140:109,160:120,180:131,200:141,220:152,240:162,260:173,280:183},
+  40:{60:69,70:75,80:80,90:85,100:90,120:101,140:112,160:122,180:133,200:143,220:154,240:164,260:175,280:185},
+  42:{60:70,70:76,80:81,90:86,100:92,120:102,140:113,160:123,180:134,200:144,220:155,240:165,260:176,280:187},
+  45:{60:72,70:77,80:83,90:88,100:93,120:104,140:114,160:125,180:135,200:146,220:156,240:167,260:178,280:188},
+  50:{60:75,70:80,80:85,90:90,100:96,120:106,140:117,160:127,180:138,200:149,220:159,240:170,260:180,280:191},
+  55:{60:77,70:83,80:88,90:93,100:98,120:109,140:119,160:130,180:141,200:151,220:162,240:172,260:183,280:193},
+  60:{60:80,70:85,80:90,90:96,100:101,120:112,140:122,160:133,180:143,200:154,220:164,240:175,260:185,280:196},
+};
+
+const FA_STD_W=[36,40,42,45,50,55,60]; // cm
+const FA_STD_H=[60,70,80,90,100,120,140,160,180,200,220,240,260,280]; // cm
+
+function getFacadePrice(model,w_mm,h_mm){
+  if(model!=="F-500"&&model!=="F-501")return null;
+  const w=w_mm/10; // cm
+  const h=h_mm/10; // cm
+  if(w>60)return null; // largeur max 60cm
+  if(h>290)return null; // hauteur max 290cm
+  if(h<60)return null; // hauteur min 60cm
+
+  // Round up width to nearest standard
+  let wStd,wLow,wHigh;
+  if(w<=36){
+    // Extrapolate below 36: use 36→40 gradient
+    wStd=null; wLow=36; wHigh=40;
+  } else {
+    const idx=FA_STD_W.findIndex(s=>s>=w);
+    wStd=FA_STD_W[idx>=0?idx:FA_STD_W.length-1];
+  }
+
+  // Round up height to nearest standard, with extrapolation above 280
+  let hStd,hExtrap=false,hExtra=0;
+  if(h<=280){
+    const idx=FA_STD_H.findIndex(s=>s>=h);
+    hStd=FA_STD_H[idx>=0?idx:FA_STD_H.length-1];
+  } else {
+    hStd=280; hExtrap=true;
+    hExtra=h-280; // cm above 280
+  }
+
+  function priceAt(ws,hs){
+    const p=FA500_PRICES[ws]&&FA500_PRICES[ws][hs];
+    if(p==null)return null;
+    if(!hExtrap)return p;
+    // Extrapolate above 280: use gradient from 260→280
+    const p260=FA500_PRICES[ws][260];
+    const p280=FA500_PRICES[ws][280];
+    if(p260==null||p280==null)return p;
+    const grad=(p280-p260)/20; // TND per cm
+    return Math.round((p280+grad*hExtra)*1000)/1000;
+  }
+
+  if(wStd!=null){
+    // Exact standard width lookup
+    return priceAt(wStd,hStd);
+  } else {
+    // Extrapolate below 36cm using 36→40 gradient
+    const p36=priceAt(36,hStd);
+    const p40=priceAt(40,hStd);
+    if(p36==null||p40==null)return null;
+    const grad=(p40-p36)/(40-36);
+    return Math.round((p36+grad*(w-36))*1000)/1000;
+  }
+}
+
+function getFacadePriceLabel(model,w_mm,h_mm){
+  if(w_mm>600)return"Largeur max 600mm";
+  if(h_mm>2900)return"Hauteur max 2900mm";
+  const p=getFacadePrice(model,w_mm,h_mm);
+  if(p==null)return"—";
+  return p.toFixed(3)+" TND HT";
+}
 
 // ═══════════════════════════════════════════
 // ─── DÉCLARATIONS DE PRODUCTION ─────────────
@@ -4069,6 +4340,7 @@ function addGamme(ref){
   if(!postesStr)return;
   if(!GAMMES[ref])GAMMES[ref]={};
   GAMMES[ref][name]=postesStr.split(",").map(p=>p.trim()).filter(Boolean);
+  if(db)db.ref("config/gammes/"+ref).set(GAMMES[ref]);
   render();
 }
 function saveEditGamme(ref,oldName){
@@ -4080,11 +4352,13 @@ function saveEditGamme(ref,oldName){
   if(!newName||!newPostes.length){alert("Nom et postes obligatoires.");return;}
   if(newName!==oldName){GAMMES[ref][newName]=newPostes;delete GAMMES[ref][oldName];}
   else{GAMMES[ref][oldName]=newPostes;}
+  if(db)db.ref("config/gammes/"+ref).set(GAMMES[ref]);
   P_STATE.editGamme=null;render();
 }
 function deleteGamme(ref,name){
   if(!confirm("Supprimer la gamme '"+name+"' ?"))return;
   if(GAMMES[ref])delete GAMMES[ref][name];
+  if(db)db.ref("config/gammes/"+ref).set(GAMMES[ref]||{});
   P_STATE.editGamme=null;render();
 }
 
