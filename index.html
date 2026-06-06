@@ -1868,24 +1868,32 @@ function renderStandardsForm(){
 
     <div style="display:flex;flex-direction:column;gap:10px" id="std-fields">
       ${postes.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px">Sélectionnez une gamme ci-dessus pour voir les postes.</div>`:
-      postes.map((poste,i)=>{
+      getGammeOps(ref,gamme).map((opObj,i)=>{
+        const poste=opObj.name||opObj;
+        const machines=opObj.machines||[];
         const existing=existingStd[poste]||"";
         const dureeSec=existing?(parseFloat(existing)*totalPcs).toFixed(0):"—";
         const dureeMin=existing?(parseFloat(existing)*totalPcs/60).toFixed(1):"—";
         const dureeH=existing?(parseFloat(existing)*totalPcs/3600).toFixed(2):"—";
-        return`<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
-          <div>
-            <div style="font-weight:600;font-size:13px">${i+1}. ${poste}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:2px" id="std-dur-${i}">
-              ${existing?`Durée estimée : <strong>${dureeSec}s (${dureeMin} min — ${dureeH}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`:"Saisir le temps pour calculer la durée"}
+        return`<div style="padding:12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+          <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;margin-bottom:${machines.length?"10px":"0"}">
+            <div>
+              <div style="font-weight:600;font-size:13px">${i+1}. ${poste}</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px" id="std-dur-${i}">
+                ${existing?`Durée estimée : <strong>${dureeSec}s (${dureeMin} min — ${dureeH}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`:"Saisir le temps pour calculer la durée"}
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input type="number" id="std-${i}" value="${existing}" min="0" step="0.01" placeholder="0.00"
+                oninput="updateStdDur(${i},this.value,${totalPcs})"
+                style="width:90px;font-size:15px;text-align:right;padding:7px 10px">
+              <span style="font-size:12px;color:var(--text2);white-space:nowrap">sec/pcs</span>
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <input type="number" id="std-${i}" value="${existing}" min="0" step="0.01" placeholder="0.00"
-              oninput="updateStdDur(${i},this.value,${totalPcs})"
-              style="width:90px;font-size:15px;text-align:right;padding:7px 10px">
-            <span style="font-size:12px;color:var(--text2);white-space:nowrap">sec/pcs</span>
-          </div>
+          ${machines.length>0?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:11px;color:var(--text2)">Machines :</span>
+            ${machines.map(mId=>{const ws=getWS().find(w=>w.id===mId);return`<span style="background:var(--teal-bg);color:var(--teal);border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600">${ws?ws.name:mId}</span>`;}).join("")}
+          </div>`:`<div style="font-size:11px;color:var(--text3);font-style:italic">Aucune machine assignée — configurez dans Paramètres → Gammes</div>`}
         </div>`;
       }).join("")}
     </div>
@@ -1967,7 +1975,6 @@ function saveStandards(propose){
 
 function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
   if(!S.plan||typeof S.plan!=="object")S.plan={};
-  // Map gamme poste names to WS ids
   const POSTE_MAP={
     "Découpe presse":"press60","Reprise Presse":"press60",
     "Ébavurage":"ebav1","Ébavurage 1":"ebav1","Ébavurage 2":"ebav2",
@@ -1977,75 +1984,72 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
     "Peinture":"peinture","Ligne peinture":"peinture",
     "CNC 3m":"cnc3m","CNC 1,5m":"cnc15m","CNC":"cnc3m",
     "Assemblage façades":"asm_fac","Assemblage miroir":"asm_mir",
-    "Emballage":"press60", // default to press60 for packaging
-    "Injection":"inj125a",
+    "Emballage":"press60","Injection":"inj125a",
   };
 
   const slots=[];
-  let currentDate=new Date(startDate+"T00:00:00");
   const hpjN=parseFloat(hpj)||8;
   const secPerDay=hpjN*3600;
-  const minPerDay=secPerDay; // standards are now in sec/pcs
+  let currentDate=startDate;
 
-  // Helper: get time for a poste, considering dim-specific profiles
-  function getTUnit(poste,dim){
-    const profile=getStdProfile(ref,dim);
-    if(profile&&profile.postes&&profile.postes[poste]!=null)return parseFloat(profile.postes[poste])||0;
-    return parseFloat(stdData[poste])||0; // fallback to flat stdData
-  }
-  postes.forEach(poste=>{
-    const tUnit=getTUnit(poste,"");
-    const wsId=POSTE_MAP[poste]||null;
+  // Get gamme ops with machine assignments
+  const gamme=S.standardsForm&&S.standardsForm.gamme;
+  const gammeOps=ref&&gamme?getGammeOps(ref,gamme):[];
+
+  postes.forEach((poste,idx)=>{
+    const tUnit=parseFloat(stdData[poste])||0;
+    // Find assigned machines from gamme config
+    const opObj=gammeOps.find(op=>(op.name||op)===poste);
+    const assignedMachines=(opObj&&opObj.machines&&opObj.machines.length)?opObj.machines:null;
+    // Pick best machine: first assigned, else fallback from POSTE_MAP
+    const wsId=assignedMachines?assignedMachines[0]:(POSTE_MAP[poste]||null);
+
     if(!tUnit||!wsId){
-      slots.push({poste,wsId:null,start:null,note:!tUnit?"Temps non saisi":"Poste non trouvé"});
+      slots.push({poste,wsId:null,machines:assignedMachines||[],start:null,note:!tUnit?"Temps non saisi":"Poste sans machine"});
       return;
     }
+
     const totalSec=tUnit*totalPcs;
     const nbDays=Math.max(1,Math.ceil(totalSec/secPerDay));
     const totalMin=Math.round(totalSec/60);
-    const startStr=currentDate.toISOString().split("T")[0];
 
-    // Add one planning entry per occupied day
-    let d=new Date(currentDate);
-    let daysAdded=0;
-    while(daysAdded<nbDays){
-      const dow=d.getDay();
-      if(dow!==0&&dow!==6){
-        const ds=d.toISOString().split("T")[0];
-        const key=wsId+"_"+ds;
-        const hoursThisDay=Math.min(hpjN,(totalSec-daysAdded*secPerDay)/3600);
-        if(!S.plan[key]||S.plan[key].proposed){
-          S.plan[key]={ofId:pfId,hours:Math.round(hoursThisDay*10)/10,notes:ref+" (proposition)",proposed:true};
-        }
-        daysAdded++;
-      }
-      d.setDate(d.getDate()+1);
+    // Find earliest available slot on this machine
+    const suggested=findEarliestSlot(wsId,currentDate);
+    const dateStr=suggested.date;
+    const timeStr=suggested.time; // "HH:MM"
+    const timeKey=timeStr.replace(":",""); // "HHMM"
+
+    // Fill planning slots
+    const baseMins=parseInt(timeKey.slice(0,2))*60+parseInt(timeKey.slice(2));
+    for(let i=0;i<nbDays*Math.ceil(hpjN*2);i++){
+      const t=baseMins+i*30;
+      if(t>=baseMins+Math.ceil(totalSec/1800)*30)break;
+      const k=planKey(wsId,dateStr,baseMins+i*30);
+      if(!S.plan[k])S.plan[k]={ofId:pfId,notes:poste,duration:i===0?Math.ceil(totalSec/1800):0,proposed:true};
     }
-    const endStr=d.toISOString().split("T")[0];
-    slots.push({poste,wsId,start:startStr,end:endStr,totalMin,totalSec:Math.round(totalSec),nbDays,tUnit});
-    // Next poste starts after this one
-    currentDate=new Date(d);
-    while(currentDate.getDay()===0||currentDate.getDay()===6){
-      currentDate.setDate(currentDate.getDate()+1);
-    }
+
+    slots.push({poste,wsId,machines:assignedMachines||[wsId],
+      start:dateStr,timeKey,totalMin,totalSec:Math.round(totalSec),nbDays,tUnit,
+      suggestedTime:timeStr});
+
+    // Next operation starts day after (flux tiré: +30min)
+    currentDate=addWorkingDays(dateStr,0); // same or next day
   });
 
-  // Save plan to Firebase
-  if(db)db.ref("plan").set(S.plan);
+  if(db)db.ref("plan").update(Object.fromEntries(
+    Object.entries(S.plan).filter(([k,v])=>v&&v.proposed)
+  ));
 
-  // Save proposal to OF
   const pfIdx=S.ofs.findIndex(o=>o.id===pfId);
   if(pfIdx>=0)S.ofs[pfIdx]={...S.ofs[pfIdx],planningProposal:slots};
   if(db)db.ref("ofs/"+pfId+"/planningProposal").set(slots);
 
   S.standardsForm=null;
-
-  // Show interactive proposal screen
-  S.planProposal={pfId,ref,slots,date:startDate};
+  S.planProposal={pfId,ref,slots,date:startDate,editSlots:slots.filter(s=>s.start).map(s=>({...s}))};
   if(slots[0]&&slots[0].start)S.planDate=slots[0].start;
   setTab("planning");
 }
-
+ 
 function getWeekKey(dateStr){
   const d=new Date(dateStr+"T00:00:00");
   const day=d.getDay();
@@ -3754,6 +3758,41 @@ function getFacadePriceLabel(model,w_mm,h_mm){
   return p.toFixed(3)+" TND HT";
 }
 
+
+// Normalize gamme ops: [{name,machines}] or ["string"]
+function getGammeOps(ref,gamme){
+  const ops=(GAMMES[ref]&&GAMMES[ref][gamme])||[];
+  return ops.map(op=>typeof op==="string"?{name:op,machines:[]}:op);
+}
+function getGammeOpNames(ref,gamme){
+  return getGammeOps(ref,gamme).map(op=>op.name||op);
+}
+function findEarliestSlot(wsId, afterDate){
+  // Find first free 30-min slot for a machine after a given date
+  const ws=getWS();
+  if(!ws.find(w=>w.id===wsId))return{date:afterDate,time:"08:00"};
+  const d=new Date((afterDate||todayStr())+"T00:00:00");
+  for(let tries=0;tries<30;tries++){
+    const dow=d.getDay();
+    if(dow!==0){ // not sunday
+      const dateStr=d.toISOString().split("T")[0];
+      const isSat=dow===6;
+      const endH=isSat?13*60:15*60; // shift 1 end
+      for(let t=8*60;t<endH;t+=30){
+        const key=wsId+"_"+dateStr+"_"+minsToKey(t);
+        if(!S.plan[key]){return{date:dateStr,time:minsToTime(t)};}
+      }
+      // Try shift 2
+      const s2End=isSat?18*60:23*60;
+      for(let t=endH;t<s2End;t+=30){
+        const key=wsId+"_"+dateStr+"_"+minsToKey(t);
+        if(!S.plan[key]){return{date:dateStr,time:minsToTime(t)};}
+      }
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return{date:afterDate,time:"08:00"};
+}
 // ═══════════════════════════════════════════
 // ─── DÉCLARATIONS DE PRODUCTION ─────────────
 // ═══════════════════════════════════════════
@@ -4286,6 +4325,32 @@ function renderPmEditor(){
   </div>`;
 }
 
+
+// ── GAMMES helpers ─────────────────────────────────────────────────────────
+// Normalise a gamme entry to {poste, machines:[]}
+function normGammeEntry(e){
+  if(typeof e==="string")return{poste:e,machines:[]};
+  if(e&&e.poste)return{poste:e.poste,machines:e.machines||[]};
+  return{poste:String(e),machines:[]};
+}
+// Get postes array (strings) from a gamme
+function gammePostes(ref,gname){
+  const g=GAMMES[ref]&&GAMMES[ref][gname];
+  if(!g)return[];
+  return g.map(e=>normGammeEntry(e).poste);
+}
+// Get machines for a poste in a gamme
+function gammeMachines(ref,gname,poste){
+  const g=GAMMES[ref]&&GAMMES[ref][gname];
+  if(!g)return[];
+  const entry=g.find(e=>normGammeEntry(e).poste===poste);
+  return entry?normGammeEntry(entry).machines:[];
+}
+// Save GAMMES ref to Firebase
+function saveGammesToFB(ref){
+  if(db)db.ref("config/gammes/"+ref).set(GAMMES[ref]||{});
+}
+
 function renderParams(){
   const tabs=[{k:"resources",l:"Ressources",i:"ti-server"},{k:"gammes",l:"Gammes",i:"ti-sitemap"},{k:"standards",l:"Temps standards",i:"ti-clock"},{k:"prix",l:"Prix",i:"ti-tag"}];
   let h=`<div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;flex-wrap:wrap">
@@ -4393,8 +4458,20 @@ function renderParamsGammes(){
           ${isEdit?`
             <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Postes séparés par des virgules :</div>
             <textarea id="edit-gpostes" rows="2" style="width:100%;font-size:13px">${(editG.postes||postes).join(", ")}</textarea>`:`
-          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-            ${postes.map((p,i)=>`<span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px">${i+1}. ${p}</span>${i<postes.length-1?'<i class="ti ti-arrow-right" style="color:var(--text3);font-size:11px"></i>':""}`).join("")}
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${getGammeOps(sel,gname).map((op,i)=>{
+              const machines=(op.machines||[]).map(mId=>{
+                const wsObj=getWS().find(w=>w.id===mId);
+                return wsObj?wsObj.name:mId;
+              });
+              return`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;white-space:nowrap">${i+1}. ${op.name||op}</span>
+                ${i<getGammeOps(sel,gname).length-1?'<i class="ti ti-arrow-right" style="color:var(--text3);font-size:11px"></i>':""}
+                ${machines.length>0?`<div style="display:flex;gap:4px;flex-wrap:wrap">${machines.map(m=>`<span style="background:var(--teal-bg);color:var(--teal);border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600"><i class="ti ti-server" style="font-size:10px"></i> ${m}</span>`).join("")}</div>`:
+                `<button onclick="editGammeMachines('${sel}','${gname}',${i})" style="font-size:11px;padding:2px 8px;border-radius:20px;border:1px dashed var(--border);color:var(--text3);cursor:pointer;background:transparent"><i class="ti ti-plus"></i> machine</button>`}
+                ${machines.length>0?`<button onclick="editGammeMachines('${sel}','${gname}',${i})" style="font-size:11px;padding:2px 6px;border-radius:var(--r);border:1px solid var(--border);cursor:pointer;background:transparent"><i class="ti ti-pencil"></i></button>`:""}
+              </div>`;
+            }).join("")}
           </div>`}
         </div>
       </div>`;
@@ -4405,25 +4482,91 @@ function renderParamsGammes(){
 function addGamme(ref){
   const name=prompt("Nom de la nouvelle gamme :");
   if(!name)return;
-  const postesStr=prompt("Postes séparés par virgules :","Coupe,Ébavurage,Peinture,Emballage");
-  if(!postesStr)return;
   if(!GAMMES[ref])GAMMES[ref]={};
-  GAMMES[ref][name]=postesStr.split(",").map(p=>p.trim()).filter(Boolean);
-  if(db)db.ref("config/gammes/"+ref).set(GAMMES[ref]);
+  GAMMES[ref][name]=[{poste:"Coupe",machines:[]},{poste:"Ébavurage",machines:[]},{poste:"Peinture",machines:[]},{poste:"Emballage",machines:[]}];
+  saveGammesToFB(ref);
+  P_STATE.editGamme={ref,name,entries:GAMMES[ref][name]};
+  render();
+}
+function toggleGammeMachine(entryIdx,wsId,checked){
+  if(!P_STATE.editGamme||!P_STATE.editGamme.entries[entryIdx])return;
+  const m=P_STATE.editGamme.entries[entryIdx].machines||[];
+  if(checked){if(!m.includes(wsId))m.push(wsId);}
+  else{P_STATE.editGamme.entries[entryIdx].machines=m.filter(id=>id!==wsId);}
   render();
 }
 function saveEditGamme(ref,oldName){
   const newNameEl=document.getElementById("edit-gname");
-  const postesEl=document.getElementById("edit-gpostes");
-  if(!newNameEl||!postesEl)return;
+  if(!newNameEl)return;
   const newName=newNameEl.value.trim();
-  const newPostes=postesEl.value.split(",").map(p=>p.trim()).filter(Boolean);
-  if(!newName||!newPostes.length){alert("Nom et postes obligatoires.");return;}
-  if(newName!==oldName){GAMMES[ref][newName]=newPostes;delete GAMMES[ref][oldName];}
-  else{GAMMES[ref][oldName]=newPostes;}
-  if(db)db.ref("config/gammes/"+ref).set(GAMMES[ref]);
+  const entries=(P_STATE.editGamme&&P_STATE.editGamme.entries)||[];
+  const validEntries=entries.filter(e=>e.poste&&e.poste.trim());
+  if(!newName||!validEntries.length){alert("Nom et au moins une opération obligatoires.");return;}
+  if(newName!==oldName){GAMMES[ref][newName]=validEntries;delete GAMMES[ref][oldName];}
+  else{GAMMES[ref][oldName]=validEntries;}
+  saveGammesToFB(ref);
   P_STATE.editGamme=null;render();
 }
+
+function editGammeMachines(ref,gname,opIdx){
+  // Set edit state for machine assignment
+  P_STATE.machineEdit={ref,gname,opIdx};
+  render();
+}
+
+function renderMachineEditModal(){
+  if(!P_STATE.machineEdit)return"";
+  const{ref,gname,opIdx}=P_STATE.machineEdit;
+  const ws=getWS();
+  const ops=getGammeOps(ref,gname);
+  const op=ops[opIdx];
+  if(!op)return"";
+  const curMachines=op.machines||[];
+  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#FFF;border-radius:var(--rl);padding:20px;max-width:480px;width:100%">
+      <div style="font-weight:700;font-size:15px;margin-bottom:4px">Machines — ${op.name||op}</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Sélectionnez les machines pouvant réaliser cette opération</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        ${ws.map(w=>`<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid ${curMachines.includes(w.id)?"var(--teal)":"var(--border)"};border-radius:var(--r);cursor:pointer;background:${curMachines.includes(w.id)?"var(--teal-bg)":"#FFF"}">
+          <input type="checkbox" ${curMachines.includes(w.id)?"checked":""} onchange="toggleGammeMachine('${w.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">
+          <div>
+            <div style="font-weight:600;font-size:13px">${esc(w.name)}</div>
+            <div style="font-size:11px;color:var(--text2);font-family:monospace">${w.id}</div>
+          </div>
+        </label>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="P_STATE.machineEdit=null;render()" class="btn">Annuler</button>
+        <button onclick="saveGammeMachines()" class="btn btn-teal"><i class="ti ti-check"></i>Enregistrer</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleGammeMachine(wsId,checked){
+  if(!P_STATE.machineEdit)return;
+  const{ref,gname,opIdx}=P_STATE.machineEdit;
+  const ops=getGammeOps(ref,gname);
+  const op=ops[opIdx];
+  if(!op)return;
+  if(!op.machines)op.machines=[];
+  if(checked){if(!op.machines.includes(wsId))op.machines.push(wsId);}
+  else{op.machines=op.machines.filter(m=>m!==wsId);}
+  // Update GAMMES in memory
+  if(!GAMMES[ref])GAMMES[ref]={};
+  GAMMES[ref][gname]=ops;
+}
+
+function saveGammeMachines(){
+  if(!P_STATE.machineEdit)return;
+  const{ref,gname}=P_STATE.machineEdit;
+  const ops=getGammeOps(ref,gname);
+  GAMMES[ref][gname]=ops;
+  if(db)db.ref("config/gammes/"+ref+"/"+gname).set(ops);
+  P_STATE.machineEdit=null;
+  render();
+}
+
 function deleteGamme(ref,name){
   if(!confirm("Supprimer la gamme '"+name+"' ?"))return;
   if(GAMMES[ref])delete GAMMES[ref][name];
