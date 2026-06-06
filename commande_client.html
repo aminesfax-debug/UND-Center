@@ -218,7 +218,7 @@ function facDesig(cfg){
   if(cfg.hingesSupplied===false)parts.push("Sans charnières");
   return parts.join(" — ");
 }
-function emptyFacCfg(model){return{model:model||"F-500",w:"",h:"",color:"",cc:"",hdl:{has:false,type:"U",orient:"Horizontal"},glass:{has:false,type:"Transparent"},hingesSupplied:true,hingePositions:[],qty:1};}
+function emptyFacCfg(model){return{model:model||"F-500",w:"",h:"",color:"",cc:"",hdl:{has:false,type:"U",orient:"Horizontal"},glass:{has:false,type:"Transparent"},hingesSupplied:false,hingePositions:[],qty:1};}
 function calcHingePos(count,h){
   if(!count||!h)return[];
   var first=135,last=h-135;

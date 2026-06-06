@@ -446,7 +446,7 @@ function emptyFacadeConfig(model){
   return{
     model,width:"",height:"",color:"",
     handle:{has:m.handle==="fixed"||false,type:"U",orientation:"Horizontal"},
-    hingesSupplied:true,
+    hingesSupplied:false,
     hingeCount:2,hingePositions:[135,865],
     glass:{has:false,type:"Transparent"},
     qty:1,notes:""
@@ -526,7 +526,7 @@ const GAMMES={
 // Default postes for any ref not in GAMMES
 const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -1535,6 +1535,46 @@ function genPdfOrder(oid){
     '<div><span>Date : </span><strong>'+esc(o.date||"—")+'</strong></div>'+
   '</div>');
   w.document.write('<table><thead><tr><th>#</th><th>Désignation</th><th style="text-align:right">Nb pcs</th><th style="text-align:right">P.Tarif/pcs</th><th style="text-align:center">Remise</th><th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th></tr></thead><tbody>'+lineRows+bonusRow+'</tbody></table>');
+  // Facade detail section
+  var facLines=lines.filter(function(l){return l.ref&&(l.ref.startsWith("F-")||l.ref.startsWith("SKIN-"))&&l.facadeConfig;});
+  if(facLines.length>0){
+    var facDetail='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:bold;border-bottom:2px solid #17171A;padding-bottom:6px;margin-bottom:10px">Détail des façades</div>';
+    facLines.forEach(function(l,i){
+      var cfg=l.facadeConfig;
+      var pos=cfg.hingePositions||[];
+      var hingeType=cfg.hingeType||"";
+      var supplied=cfg.hingesSupplied!==false;
+      facDetail+='<div style="border:1px solid #DDD;border-radius:6px;padding:12px;margin-bottom:10px;break-inside:avoid">';
+      facDetail+='<div style="font-weight:bold;font-size:12px;margin-bottom:8px;color:#17171A">'+(i+1)+'. '+esc(l.designation||l.ref)+'</div>';
+      facDetail+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;font-size:11px">';
+      facDetail+='<div><span style="color:#666">Dimensions :</span> <strong>'+(cfg.w||"—")+'×'+(cfg.h||"—")+'mm</strong></div>';
+      facDetail+='<div><span style="color:#666">Quantité :</span> <strong>'+(l.qty||1)+' pcs</strong></div>';
+      if(cfg.color||cfg.cc){facDetail+='<div><span style="color:#666">Couleur :</span> <strong>'+esc(cfg.color==="Personnalisée"?cfg.cc:cfg.color)+'</strong></div>';}
+      if(cfg.glass&&cfg.glass.has){facDetail+='<div><span style="color:#666">Verre :</span> <strong>'+esc(cfg.glass.type||"")+'</strong></div>';}
+      if(cfg.hdl&&(cfg.hdl.has||cfg.handle==="fixed")){
+        var hdlStr=cfg.handle==="fixed"?"Poignée fixe incluse":("Poignée en "+esc(cfg.hdl.type||"U")+" — "+esc(cfg.hdl.orient||"Horizontal"));
+        facDetail+='<div><span style="color:#666">Poignée :</span> <strong>'+hdlStr+'</strong></div>';
+      }
+      facDetail+='</div>';
+      // Hinge positions
+      if(pos.length>0){
+        facDetail+='<div style="margin-top:10px;padding-top:8px;border-top:1px solid #EEE">';
+        facDetail+='<div style="font-size:11px;font-weight:bold;color:#444;margin-bottom:6px">';
+        facDetail+=pos.length+' charnière'+( pos.length>1?"s":"")+(hingeType?" "+hingeType:"")+(supplied?" <span style=\"color:#0F6E56\">(fournies)</span>":" <span style=\"color:#A32D2D\">(non fournies)</span>");
+        facDetail+='</div>';
+        facDetail+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        pos.forEach(function(p,k){
+          facDetail+='<div style="background:#F5F5F5;border:1px solid #DDD;border-radius:4px;padding:4px 10px;font-size:11px"><strong>Ch.'+(k+1)+'</strong> : '+p+' mm</div>';
+        });
+        facDetail+='</div></div>';
+      }else if(cfg.hingeCount>0){
+        facDetail+='<div style="margin-top:8px;font-size:11px;color:#888">'+cfg.hingeCount+' charnière'+(cfg.hingeCount>1?"s":"")+(hingeType?" "+hingeType:"")+(supplied?" (fournies)":" (non fournies)")+'</div>';
+      }
+      facDetail+='</div>';
+    });
+    facDetail+='</div>';
+    w.document.write(facDetail);
+  }
   w.document.write('<div class="totals-box">');
   if(totalP>0)w.document.write('<div class="total-row"><span>Total poignées</span><span style="color:#0F6E56;font-weight:bold">'+totalP.toLocaleString("fr-FR")+' pcs</span></div>');
   if(totalF>0)w.document.write('<div class="total-row"><span>Total façades</span><span style="color:#534AB7;font-weight:bold">'+totalF.toLocaleString("fr-FR")+' pcs</span></div>');
@@ -1812,20 +1852,21 @@ function renderStandardsForm(){
       ${postes.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px">Sélectionnez une gamme ci-dessus pour voir les postes.</div>`:
       postes.map((poste,i)=>{
         const existing=existingStd[poste]||"";
-        const dureeMin=existing?(parseFloat(existing)*totalPcs).toFixed(0):"—";
-        const dureeH=existing?(parseFloat(existing)*totalPcs/60).toFixed(1):"—";
+        const dureeSec=existing?(parseFloat(existing)*totalPcs).toFixed(0):"—";
+        const dureeMin=existing?(parseFloat(existing)*totalPcs/60).toFixed(1):"—";
+        const dureeH=existing?(parseFloat(existing)*totalPcs/3600).toFixed(2):"—";
         return`<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
           <div>
             <div style="font-weight:600;font-size:13px">${i+1}. ${poste}</div>
             <div style="font-size:11px;color:var(--text3);margin-top:2px" id="std-dur-${i}">
-              ${existing?`Durée estimée : <strong>${dureeMin} min (${dureeH}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`:"Saisir le temps pour calculer la durée"}
+              ${existing?`Durée estimée : <strong>${dureeSec}s (${dureeMin} min — ${dureeH}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`:"Saisir le temps pour calculer la durée"}
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
             <input type="number" id="std-${i}" value="${existing}" min="0" step="0.01" placeholder="0.00"
               oninput="updateStdDur(${i},this.value,${totalPcs})"
               style="width:90px;font-size:15px;text-align:right;padding:7px 10px">
-            <span style="font-size:12px;color:var(--text2);white-space:nowrap">min/pcs</span>
+            <span style="font-size:12px;color:var(--text2);white-space:nowrap">sec/pcs</span>
           </div>
         </div>`;
       }).join("")}
@@ -1844,7 +1885,7 @@ function renderStandardsForm(){
       </div>
       <div class="form-group">
         <label>Heures/jour disponibles sur ce poste</label>
-        <input type="number" id="std-hpj" value="8" min="1" max="24" step="0.5">
+        <input type="number" id="std-hpj" value="8" min="1" max="24" step="0.5" min="1" max="24" step="0.5">
       </div>
     </div>
   </div>
@@ -1864,9 +1905,10 @@ function updateStdDur(i,val,totalPcs){
   if(!el)return;
   const v=parseFloat(val)||0;
   if(v>0){
-    const min=(v*totalPcs).toFixed(0);
-    const h=(v*totalPcs/60).toFixed(1);
-    el.innerHTML=`Durée estimée : <strong>${min} min (${h}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`;
+    const sec=(v*totalPcs).toFixed(0);
+    const min=(v*totalPcs/60).toFixed(1);
+    const h=(v*totalPcs/3600).toFixed(2);
+    el.innerHTML=`Durée estimée : <strong>${sec}s (${min} min — ${h}h)</strong> pour ${totalPcs.toLocaleString("fr-FR")} pcs`;
   } else {
     el.textContent="Saisir le temps pour calculer la durée";
   }
@@ -1924,7 +1966,8 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
   const slots=[];
   let currentDate=new Date(startDate+"T00:00:00");
   const hpjN=parseFloat(hpj)||8;
-  const minPerDay=hpjN*60;
+  const secPerDay=hpjN*3600;
+  const minPerDay=secPerDay; // standards are now in sec/pcs
 
   // Helper: get time for a poste, considering dim-specific profiles
   function getTUnit(poste,dim){
@@ -1939,8 +1982,9 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
       slots.push({poste,wsId:null,start:null,note:!tUnit?"Temps non saisi":"Poste non trouvé"});
       return;
     }
-    const totalMin=tUnit*totalPcs;
-    const nbDays=Math.max(1,Math.ceil(totalMin/minPerDay));
+    const totalSec=tUnit*totalPcs;
+    const nbDays=Math.max(1,Math.ceil(totalSec/secPerDay));
+    const totalMin=Math.round(totalSec/60);
     const startStr=currentDate.toISOString().split("T")[0];
 
     // Add one planning entry per occupied day
@@ -1951,7 +1995,7 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
       if(dow!==0&&dow!==6){
         const ds=d.toISOString().split("T")[0];
         const key=wsId+"_"+ds;
-        const hoursThisDay=Math.min(hpjN,(totalMin-daysAdded*minPerDay)/60);
+        const hoursThisDay=Math.min(hpjN,(totalSec-daysAdded*secPerDay)/3600);
         if(!S.plan[key]||S.plan[key].proposed){
           S.plan[key]={ofId:pfId,hours:Math.round(hoursThisDay*10)/10,notes:ref+" (proposition)",proposed:true};
         }
@@ -1960,7 +2004,7 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
       d.setDate(d.getDate()+1);
     }
     const endStr=d.toISOString().split("T")[0];
-    slots.push({poste,wsId,start:startStr,end:endStr,totalMin:Math.round(totalMin),nbDays,tUnit});
+    slots.push({poste,wsId,start:startStr,end:endStr,totalMin,totalSec:Math.round(totalSec),nbDays,tUnit});
     // Next poste starts after this one
     currentDate=new Date(d);
     while(currentDate.getDay()===0||currentDate.getDay()===6){
@@ -2073,145 +2117,213 @@ function updateOFStatus(id,status){
 // ═══════════════════════════════════════════
 // ─── PLANNING ───
 // ═══════════════════════════════════════════
-function renderPlanning(){
-  const wd=getWeekDays(S.weekOff);
-  const today=todayStr();
-  const wS=wd[0].toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"});
-  const wE=wd[5].toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"});
-  const sel=S.planSel;
-  const openOrders=S.orders.filter(o=>!["TERMINÉ","ANNULÉ","APURÉ"].includes(o.status));
+// ═══════════════════════════════════════════
+// ─── PLANNING ────────────────────────────
+// ═══════════════════════════════════════════
 
-  let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-    <button class="btn btn-sm" onclick="S.weekOff--;S.planSel=null;render()"><i class="ti ti-chevron-left"></i> Préc.</button>
-    <span style="font-weight:600;font-size:13px">
-      ${S.weekOff===0?"Sem. en cours":S.weekOff<0?`Sem. −${Math.abs(S.weekOff)}`:`Sem. +${S.weekOff}`}
-      &nbsp;—&nbsp;${wS} → ${wE}
-    </span>
-    <button class="btn btn-sm" onclick="S.weekOff++;S.planSel=null;render()">Suiv. <i class="ti ti-chevron-right"></i></button>
-    ${S.weekOff!==0?`<button class="btn btn-sm" onclick="S.weekOff=0;S.planSel=null;render()">Aujourd'hui</button>`:""}
+const SHIFT1_COLOR="#E8F5F1"; // light teal - poste 1
+const SHIFT2_COLOR="#EEF0FF"; // light purple - poste 2
+const BREAK_COLOR="#F0F0F0";  // between shifts
+
+function minsToTime(m){return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");}
+function minsToKey(m){return String(Math.floor(m/60)).padStart(2,"0")+String(m%60).padStart(2,"0");}
+function planKey(wsId,dateStr,mins){return wsId+"_"+dateStr+"_"+minsToKey(mins);}
+
+function getDaySlots(dateStr,showShift){
+  const date=new Date(dateStr+"T00:00:00");
+  const dow=date.getDay();
+  const isSat=dow===6;
+  const slots=[];
+  const s1e=isSat?13*60:15*60;
+  const s2e=isSat?18*60:23*60;
+  if(showShift!=="shift2"){for(let t=8*60;t<s1e;t+=30)slots.push({t,shift:1});}
+  if(showShift!=="shift1"){for(let t=s1e;t<s2e;t+=30)slots.push({t,shift:2});}
+  return slots;
+}
+
+function addWorkingDays(dateStr,n){
+  const d=new Date(dateStr+"T00:00:00");
+  let added=0;
+  while(added<Math.abs(n)){
+    d.setDate(d.getDate()+(n>0?1:-1));
+    const dow=d.getDay();
+    if(dow!==0)added++;
+  }
+  return d.toISOString().split("T")[0];
+}
+
+function planColorForOf(ofId){
+  // Consistent color per OF based on id hash
+  const colors=["#D4EDDA","#D1ECF1","#FFF3CD","#F8D7DA","#E2D9F3","#FCE4D6","#D7E9F7","#FDEBD0"];
+  let h=0;for(let i=0;i<ofId.length;i++)h=(h*31+ofId.charCodeAt(i))&0xFFFF;
+  return colors[h%colors.length];
+}
+
+function renderPlanning(){
+  const ws=getWS();
+  if(!S.planDate)S.planDate=todayStr();
+  const selDate=S.planDate;
+  const date=new Date(selDate+"T00:00:00");
+  const dow=date.getDay();
+  const dayNames=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
+  const monthNames=["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"];
+  const isSun=dow===0;
+  const isSat=dow===6;
+  const dayLabel=dayNames[dow]+" "+date.getDate()+" "+monthNames[date.getMonth()]+" "+date.getFullYear();
+
+  // Navigation header
+  let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button onclick="S.planDate=addWorkingDays('${selDate}',-1);render()" class="btn btn-sm"><i class="ti ti-chevron-left"></i></button>
+    <input type="date" value="${selDate}" onchange="S.planDate=this.value;render()" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);background:#FFF">
+    <button onclick="S.planDate=addWorkingDays('${selDate}',1);render()" class="btn btn-sm"><i class="ti ti-chevron-right"></i></button>
+    <span style="font-weight:700;font-size:14px;color:${isSun?"var(--red)":"var(--text)"}">${dayLabel}${isSun?" — Fermé":""}</span>
+    <div style="margin-left:auto;display:flex;gap:6px">
+      ${["all","shift1","shift2"].map(s=>`<button onclick="S.planShift='${s}';render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${S.planShift===s?"#17171A":"var(--border)"};background:${S.planShift===s?"#17171A":"#FFF"};color:${S.planShift===s?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${s==="all"?"Les 2 postes":s==="shift1"?"Poste 1":"Poste 2"}</button>`).join("")}
+    </div>
   </div>`;
 
-  if(sel){
-    const cell=S.plan[sel.key]||{};
-    h+=`<div class="assign-panel">
-      <div style="font-weight:700;font-size:13px;margin-bottom:12px;display:flex;align-items:center;gap:6px">
-        <i class="ti ti-edit" style="font-size:15px"></i>${WS.find(w=>w.id===sel.wsId)?.name} — ${sel.dayLabel}
+  if(isSun){
+    return h+`<div class="card"><div class="empty"><i class="ti ti-moon"></i><p>Dimanche — Atelier fermé</p></div></div>`;
+  }
+
+  const slots=getDaySlots(selDate,S.planShift);
+  if(!slots.length){
+    return h+`<div class="card"><div class="empty"><p>Aucun créneau pour ce filtre.</p></div></div>`;
+  }
+
+  // Legend
+  const shift1End=isSat?"13h":"15h";
+  const shift2End=isSat?"18h":"23h";
+  h+=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:11px">
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:14px;background:${SHIFT1_COLOR};border:1px solid #CCC;border-radius:3px;display:inline-block"></span>Poste 1 — 8h à ${shift1End}</span>
+    <span style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:14px;background:${SHIFT2_COLOR};border:1px solid #CCC;border-radius:3px;display:inline-block"></span>Poste 2 — ${shift1End} à ${shift2End}</span>
+    <span style="color:var(--text3)">Cliquez sur un créneau pour affecter ou modifier un OF</span>
+  </div>`;
+
+  // Modal if a slot is selected
+  if(S.planClickKey){
+    const parts=S.planClickKey.split("_");
+    const clickWs=parts[0];const clickDate=parts[1];const clickTime=parts[2];
+    const existing=S.plan[S.planClickKey];
+    const wsName=(ws.find(w=>w.id===clickWs)||{name:clickWs}).name;
+    const activeOfs=S.ofs.filter(o=>o.status==="LANCÉ"||o.status==="EN_COURS"||!o.status);
+    const hhmm=clickTime.slice(0,2)+":"+clickTime.slice(2);
+    h+=`<div style="background:#FFF;border:2px solid var(--teal);border-radius:var(--rl);padding:16px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <strong style="font-size:13px"><i class="ti ti-pencil"></i> ${wsName} — ${hhmm}</strong>
+        <button onclick="S.planClickKey=null;render()" class="btn btn-sm"><i class="ti ti-x"></i></button>
       </div>
-      <div class="assign-grid">
-        <div class="form-group"><label>Ordre de fabrication</label>
-          <select id="as-of">
-            <option value="">— Effacer —</option>
-            ${openOrders.map(o=>`<option value="${o.id}"${cell.ofId===o.id?" selected":""}>${o.id} — ${esc(o.client)} (${o.deadline})</option>`).join("")}
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="form-group">
+          <label>OF</label>
+          <select id="plan-of-sel">
+            <option value="">— Vide —</option>
+            ${activeOfs.map(o=>`<option value="${o.id}"${existing&&existing.ofId===o.id?" selected":""}>${o.id}${o.ref?" — "+o.ref:""}</option>`).join("")}
           </select>
         </div>
-        <div class="form-group"><label>Heures</label><input type="number" id="as-h" value="${cell.hours||""}" min="0" max="24" step=".5" placeholder="h"></div>
-        <div class="form-group"><label>Note</label><input type="text" id="as-note" value="${esc(cell.notes||"")}" placeholder="Ex: setup + run"></div>
+        <div class="form-group">
+          <label>Opération</label>
+          <input type="text" id="plan-op-inp" value="${existing?esc(existing.notes||""):""}">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>Durée (nombre de créneaux de 30mn)</label>
+        <input type="number" id="plan-dur" value="${existing?existing.duration||1:1}" min="1" max="16">
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-primary btn-sm" onclick="planSave()"><i class="ti ti-check"></i>Enregistrer</button>
-        <button class="btn btn-red btn-sm" onclick="planClear()"><i class="ti ti-trash"></i>Effacer</button>
-        <button class="btn btn-sm" onclick="S.planSel=null;render()">Annuler</button>
+        ${existing?`<button onclick="planClearSlot()" class="btn" style="color:var(--red)"><i class="ti ti-trash"></i>Vider</button>`:""}
+        <button onclick="planSaveSlot()" class="btn btn-teal" style="margin-left:auto"><i class="ti ti-check"></i>Enregistrer</button>
       </div>
     </div>`;
   }
 
-  h+=`<div class="plan-scroll"><table class="plan-table" style="width:100%"><thead><tr>
-    <th style="text-align:left;min-width:130px;position:sticky;left:0;z-index:2;background:var(--surface2)">Poste</th>
-    ${wd.map(d=>{const isT=isoDate(d)===today;return`<th class="${isT?"today-h":""}">${fmtShort(d)}</th>`;}).join("")}
-  </tr></thead><tbody>
-    ${WS.map(ws=>`<tr>
-      <td class="ws-col" style="position:sticky;left:0;z-index:1">${ws.name}</td>
-      ${wd.map(d=>{
-        const ds=isoDate(d);const key=ws.id+"_"+ds;
-        const cell=S.plan[key];const isT=ds===today;const isSel=sel&&sel.key===key;
-        return`<td class="pcell${isSel?" sel":""}${isT?" today-c":""}${cell&&cell.proposed?" proposed":""}" onclick="planClick('${ws.id}','${ds}','${key}','${esc(fmtLong(d))}')">
-          ${cell?`<div class="cell-of" style="font-size:10px;${cell.proposed?"color:var(--teal);font-style:italic":""}">${cell.ofId}</div>${cell.hours?`<div class="cell-h">${cell.hours}h</div>`:""}${cell.notes?`<div class="cell-note">${esc(cell.notes)}</div>`:""}`:""}
-        </td>`;
-      }).join("")}
-    </tr>`).join("")}
-  </tbody></table></div>
-  <p style="font-size:11px;color:var(--text3);margin-top:8px">Cliquez sur une case pour affecter ou modifier un OF. <em>Italique vert = proposition automatique.</em></p>
-  <p style="font-size:10px;color:var(--text3)">Plan entries cette semaine : ${Object.keys(S.plan||{}).filter(k=>wd.some(d=>k.endsWith(isoDate(d)))).length}</p>`;
-  return h;
-}
+  // Grid
+  h+=`<div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:${200+slots.length*56}px;font-size:11px">
+    <thead><tr>
+      <th style="position:sticky;left:0;background:var(--surface2);z-index:3;min-width:140px;padding:8px 10px;text-align:left;border:1px solid var(--border)">Poste</th>
+      ${slots.map(s=>`<th style="min-width:52px;padding:5px 2px;text-align:center;background:${s.shift===1?SHIFT1_COLOR:SHIFT2_COLOR};border:1px solid var(--border);font-weight:${s.t%60===0?"700":"400"};color:${s.shift===1?"#0F6E56":"#534AB7"}">
+        ${minsToTime(s.t)}
+      </th>`).join("")}
+    </tr></thead>
+    <tbody>
+      ${ws.map(w=>`<tr>
+        <td style="position:sticky;left:0;background:var(--surface2);z-index:2;padding:7px 10px;border:1px solid var(--border);font-weight:600;white-space:nowrap">${esc(w.name)}</td>
+        ${slots.map(s=>{
+          const key=planKey(w.id,selDate,s.t);
+          const cell=S.plan[key];
+          const isSel=S.planClickKey===key;
+          const bg=isSel?"var(--teal-bg)":cell?planColorForOf(cell.ofId):(s.shift===1?SHIFT1_COLOR:SHIFT2_COLOR);
+          return`<td onclick="planCellClick('${key}')" style="padding:3px 2px;border:1px solid ${isSel?"var(--teal)":"var(--border)"};background:${bg};cursor:pointer;text-align:center;min-width:52px;vertical-align:middle">
+            ${cell?`<div style="font-size:10px;font-weight:700;line-height:1.2;color:#333">${cell.ofId}</div>`:""}
+          </td>`;
+        }).join("")}
+      </tr>`).join("")}
+    </tbody>
+  </table></div>
 
-// ═══════════════════════════════════════════
-// ─── APUREMENT ───
-// ═══════════════════════════════════════════
-function renderApurement(){
-  const eligible=S.orders.filter(o=>["LANCÉ","EN_COURS","TERMINÉ"].includes(o.status));
-  if(!eligible.length)return`<div class="card"><div class="empty"><i class="ti ti-checkup-list"></i><p>Aucune commande éligible à l'apurement.<br>Lancez d'abord des ordres de fabrication.</p></div></div>`;
-  let h=`<p style="font-size:12px;color:var(--text2);margin-bottom:12px">L'apurement clôture un OF, confirme les quantités produites, valorise le stock et génère un bon d'entrée magasin.</p>`;
-  h+=eligible.map(o=>{
-    const isOpen=S.openApur===o.id;
-    const activeLines=(o.lines||[]).filter(l=>l.ref);
-    return`<div class="apur-card">
-      <div class="apur-header" onclick="S.openApur=S.openApur==='${o.id}'?null:'${o.id}';render()">
-        <div style="display:flex;align-items:center;gap:10px;flex:1;flex-wrap:wrap">
-          <span style="font-weight:700;font-size:14px">${o.id}</span>
-          <span style="flex:1;font-size:13px">${esc(o.client)}</span>
-          ${dlLabel(daysLeft(o.deadline))} ${statusPill(o.status)}
-        </div>
-        <i class="ti ti-chevron-${isOpen?"up":"down"}" style="color:var(--text3);font-size:16px;flex-shrink:0"></i>
-      </div>
-      ${isOpen?renderApurBody(o,activeLines):""}
-    </div>`;
-  }).join("");
-  return h;
-}
-
-function renderApurBody(o,lines){
-  const apData=o.apurData||{};
-  const currency=o.currency||"TND";
-  let totalVal=0;
-  lines.forEach(l=>{
-    const qProd=parseFloat((apData[l.id]||{}).qtyProd||l.qty)||0;
-    const pRef=parseFloat((apData[l.id]||{}).prixRef||l.unitPrice)||0;
-    totalVal+=qProd*pRef;
-  });
-  return`<div class="apur-body">
-    <div style="font-weight:600;font-size:12px;margin-bottom:10px">Quantités produites & valorisation</div>
-    <div class="table-scroll"><table class="apur-table" style="min-width:480px"><thead><tr>
-      <th>Réf</th><th>Désignation</th><th>Qté commandée</th><th>Qté produite</th><th>Prix réf. (${currency})</th><th style="text-align:right">Valeur HT</th>
-    </tr></thead><tbody>
-      ${lines.map(l=>{
-        const ap=apData[l.id]||{};
-        const qP=parseFloat(ap.qtyProd||l.qty)||0;
-        const pR=parseFloat(ap.prixRef||l.unitPrice)||0;
-        const val=qP*pR;
-        return`<tr>
-          <td style="font-weight:600">${l.ref}</td>
-          <td style="font-size:12px">${esc(l.designation)||"—"}</td>
-          <td style="color:var(--text2)">${l.qty} ${l.unit}</td>
-          <td><input type="number" class="apur-qty" data-oid="${o.id}" data-lid="${l.id}" value="${ap.qtyProd!==undefined?ap.qtyProd:l.qty}" min="0" step="any" style="font-size:12px;width:90px"></td>
-          <td><input type="number" class="apur-prix" data-oid="${o.id}" data-lid="${l.id}" value="${ap.prixRef!==undefined?ap.prixRef:l.unitPrice}" min="0" step="0.001" style="font-size:12px;width:90px"></td>
-          <td style="text-align:right;font-weight:600;font-size:12px" id="apur-val-${o.id}-${l.id}">${val>0?val.toFixed(3):"—"}</td>
-        </tr>`;
-      }).join("")}
-    </tbody><tfoot>
-      <tr style="background:var(--surface2)">
-        <td colspan="5" style="font-weight:700;font-size:13px;padding:8px 10px">Total valorisé (${currency})</td>
-        <td style="text-align:right;font-weight:700;font-size:13px;padding:8px 10px" id="apur-total-${o.id}">${totalVal>0?totalVal.toFixed(3):"—"}</td>
-      </tr>
-    </tfoot></table></div>
-
-    <div class="form-group" style="max-width:300px;margin-top:12px">
-      <label>Date de production / clôture</label>
-      <input type="date" id="apur-date-${o.id}" value="${apData.dateProduction||todayStr()}">
-    </div>
-
-    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-purple" onclick="apurerOF('${o.id}')"><i class="ti ti-checkup-list"></i>Apurer & Générer bon d'entrée</button>
-      <button class="btn btn-sm" onclick="saveApurDraft('${o.id}')"><i class="ti ti-device-floppy"></i>Sauvegarder brouillon</button>
-    </div>
-
-    <div class="bon-preview" id="bon-preview-${o.id}" style="display:none"></div>
+  <div style="margin-top:10px;font-size:11px;color:var(--text3)">
+    Plan entries aujourd'hui : ${Object.keys(S.plan||{}).filter(k=>k.includes("_"+selDate+"_")).length}
   </div>`;
+
+  return h;
 }
 
-// ═══════════════════════════════════════════
-// ─── BONS D'ENTRÉE ───
-// ═══════════════════════════════════════════
+function planCellClick(key){
+  S.planClickKey=S.planClickKey===key?null:key;
+  render();
+}
+
+function planSaveSlot(){
+  const key=S.planClickKey;if(!key)return;
+  const ofId=document.getElementById("plan-of-sel")?.value||"";
+  const notes=document.getElementById("plan-op-inp")?.value||"";
+  const duration=parseInt(document.getElementById("plan-dur")?.value)||1;
+  
+  if(!ofId){planClearSlot();return;}
+  
+  // Parse key to fill multiple slots for duration
+  const parts=key.split("_");
+  const wsId=parts[0];const dateStr=parts[1];const timeStr=parts[2];
+  const baseMins=parseInt(timeStr.slice(0,2))*60+parseInt(timeStr.slice(2));
+  
+  for(let i=0;i<duration;i++){
+    const t=baseMins+i*30;
+    const k=planKey(wsId,dateStr,t);
+    S.plan[k]={ofId,notes,duration:i===0?duration:0,proposed:false};
+  }
+  if(db)db.ref("plan").update(
+    Object.fromEntries(
+      Array.from({length:duration},(_,i)=>{
+        const t=baseMins+i*30;
+        const k=planKey(wsId,dateStr,t);
+        return[k,{ofId,notes,duration:i===0?duration:0}];
+      })
+    )
+  );
+  S.planClickKey=null;
+  render();
+}
+
+function planClearSlot(){
+  const key=S.planClickKey;if(!key)return;
+  const cell=S.plan[key];
+  const dur=cell&&cell.duration>1?cell.duration:1;
+  const parts=key.split("_");
+  const wsId=parts[0];const dateStr=parts[1];const timeStr=parts[2];
+  const baseMins=parseInt(timeStr.slice(0,2))*60+parseInt(timeStr.slice(2));
+  const delKeys={};
+  for(let i=0;i<dur;i++){
+    const t=baseMins+i*30;
+    const k=planKey(wsId,dateStr,t);
+    delete S.plan[k];
+    delKeys[k]=null;
+  }
+  if(db)db.ref("plan").update(delKeys);
+  S.planClickKey=null;
+  render();
+}
+
+
 function renderBons(){
   if(!S.bons.length)return`<div class="card"><div class="empty"><i class="ti ti-package"></i><p>Aucun bon d'entrée généré.<br>Apurez des commandes pour créer des bons d'entrée magasin.</p></div></div>`;
   const sorted=[...S.bons].sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -2890,6 +3002,46 @@ function genPdfFromPending(id){
     '<div><span>Date demande : </span><strong>'+esc(o.date||"—")+'</strong></div>'+
   '</div>');
   w.document.write('<table><thead><tr><th>#</th><th>Désignation</th><th style="text-align:right">Nb pcs</th><th style="text-align:right">P.Tarif/pcs</th><th style="text-align:center">Remise</th><th style="text-align:right">P.U. Net</th><th style="text-align:right">Total HT</th></tr></thead><tbody>'+lineRows+bonusRow+'</tbody></table>');
+  // Facade detail section
+  var facLines=lines.filter(function(l){return l.ref&&(l.ref.startsWith("F-")||l.ref.startsWith("SKIN-"))&&l.facadeConfig;});
+  if(facLines.length>0){
+    var facDetail='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:bold;border-bottom:2px solid #17171A;padding-bottom:6px;margin-bottom:10px">Détail des façades</div>';
+    facLines.forEach(function(l,i){
+      var cfg=l.facadeConfig;
+      var pos=cfg.hingePositions||[];
+      var hingeType=cfg.hingeType||"";
+      var supplied=cfg.hingesSupplied!==false;
+      facDetail+='<div style="border:1px solid #DDD;border-radius:6px;padding:12px;margin-bottom:10px;break-inside:avoid">';
+      facDetail+='<div style="font-weight:bold;font-size:12px;margin-bottom:8px;color:#17171A">'+(i+1)+'. '+esc(l.designation||l.ref)+'</div>';
+      facDetail+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;font-size:11px">';
+      facDetail+='<div><span style="color:#666">Dimensions :</span> <strong>'+(cfg.w||"—")+'×'+(cfg.h||"—")+'mm</strong></div>';
+      facDetail+='<div><span style="color:#666">Quantité :</span> <strong>'+(l.qty||1)+' pcs</strong></div>';
+      if(cfg.color||cfg.cc){facDetail+='<div><span style="color:#666">Couleur :</span> <strong>'+esc(cfg.color==="Personnalisée"?cfg.cc:cfg.color)+'</strong></div>';}
+      if(cfg.glass&&cfg.glass.has){facDetail+='<div><span style="color:#666">Verre :</span> <strong>'+esc(cfg.glass.type||"")+'</strong></div>';}
+      if(cfg.hdl&&(cfg.hdl.has||cfg.handle==="fixed")){
+        var hdlStr=cfg.handle==="fixed"?"Poignée fixe incluse":("Poignée en "+esc(cfg.hdl.type||"U")+" — "+esc(cfg.hdl.orient||"Horizontal"));
+        facDetail+='<div><span style="color:#666">Poignée :</span> <strong>'+hdlStr+'</strong></div>';
+      }
+      facDetail+='</div>';
+      // Hinge positions
+      if(pos.length>0){
+        facDetail+='<div style="margin-top:10px;padding-top:8px;border-top:1px solid #EEE">';
+        facDetail+='<div style="font-size:11px;font-weight:bold;color:#444;margin-bottom:6px">';
+        facDetail+=pos.length+' charnière'+( pos.length>1?"s":"")+(hingeType?" "+hingeType:"")+(supplied?" <span style=\"color:#0F6E56\">(fournies)</span>":" <span style=\"color:#A32D2D\">(non fournies)</span>");
+        facDetail+='</div>';
+        facDetail+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        pos.forEach(function(p,k){
+          facDetail+='<div style="background:#F5F5F5;border:1px solid #DDD;border-radius:4px;padding:4px 10px;font-size:11px"><strong>Ch.'+(k+1)+'</strong> : '+p+' mm</div>';
+        });
+        facDetail+='</div></div>';
+      }else if(cfg.hingeCount>0){
+        facDetail+='<div style="margin-top:8px;font-size:11px;color:#888">'+cfg.hingeCount+' charnière'+(cfg.hingeCount>1?"s":"")+(hingeType?" "+hingeType:"")+(supplied?" (fournies)":" (non fournies)")+'</div>';
+      }
+      facDetail+='</div>';
+    });
+    facDetail+='</div>';
+    w.document.write(facDetail);
+  }
   w.document.write('<div class="totals-box">');
   if(totalP>0)w.document.write('<div class="total-row"><span>Total poignées</span><span style="color:#0F6E56;font-weight:bold">'+totalP.toLocaleString("fr-FR")+' pcs</span></div>');
   if(totalF>0)w.document.write('<div class="total-row"><span>Total façades</span><span style="color:#534AB7;font-weight:bold">'+totalF.toLocaleString("fr-FR")+' pcs</span></div>');
@@ -3956,7 +4108,7 @@ function renderParamsStandards(){
   const dims=DIMS.filter(d=>d!=="");
   h+=`<div class="card" style="padding:0;overflow:hidden">
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <div style="font-weight:700;font-size:13px">${sel} — ${selG} <span style="font-size:11px;font-weight:400;color:var(--text2)">/ min par pièce</span></div>
+      <div style="font-weight:700;font-size:13px">${sel} — ${selG} <span style="font-size:11px;font-weight:400;color:var(--text2)">/ sec par pièce</span></div>
       <button onclick="saveAllStdMatrix('${sel}','${selG}')" class="btn btn-teal btn-sm"><i class="ti ti-device-floppy"></i>Enregistrer</button>
     </div>
     <div class="table-scroll">
@@ -3981,7 +4133,7 @@ function renderParamsStandards(){
       </tbody>
     </table></div>
     <div style="padding:10px 16px;background:var(--surface2);font-size:11px;color:var(--text3)">
-      Laissez vide si le temps n'est pas applicable pour cette dimension. Valeur en minutes par pièce.
+      Valeur en secondes par pièce (sec/pcs). Laissez vide si non applicable.
     </div>
   </div>`;
   return h;
