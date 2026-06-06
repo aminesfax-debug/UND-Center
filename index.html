@@ -1893,7 +1893,7 @@ function renderStandardsForm(){
           ${machines.length>0?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <span style="font-size:11px;color:var(--text2)">Machines :</span>
             ${machines.map(mId=>{const ws=getWS().find(w=>w.id===mId);return`<span style="background:var(--teal-bg);color:var(--teal);border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600">${ws?ws.name:mId}</span>`;}).join("")}
-          </div>`:`<div style="font-size:11px;color:var(--text3);font-style:italic">Aucune machine assignée — configurez dans Paramètres → Gammes</div>`}
+          </div>`:`<div style="font-size:11px;color:var(--text3);font-style:italic">Aucune machine — cliquez le ✏️ pour assigner</div>`}
         </div>`;
       }).join("")}
     </div>
@@ -3339,7 +3339,7 @@ function saveFacadeConf(){
     largeur:cfg.width?String(cfg.width):"",
     color:cfg.color||"",
     unit:"pcs",
-    prixTarif:totalUnit!==null?totalUnit:(autoPrice!==null?autoPrice:""),
+    prixTarif:autoPrice!==null?Math.round((autoPrice+glassPriceSave)*1000)/1000:"",
     remise:remiseSave,
     hingesSupplied:cfg.hingesSupplied!==false,
     hingePositions:hingePos,
