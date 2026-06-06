@@ -1,0 +1,40 @@
+name: Récap Production Slack
+on:
+  schedule:
+    - cron: '0 17 * * 1-5'
+    - cron: '0 12 * * 6'
+  workflow_dispatch:
+jobs:
+  send-recap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Envoyer le récap
+        run: |
+          TODAY=$(TZ="Africa/Tunis" date +%Y-%m-%d)
+          DECLS=$(curl -s "https://und-center-default-rtdb.europe-west1.firebasedatabase.app/declarations.json")
+          python3 << 'PYEOF'
+import urllib.request, json, os
+from datetime import datetime
+today = os.environ.get('TODAY', datetime.now().strftime('%Y-%m-%d'))
+data = json.loads("""$DECLS""") if """$DECLS""" != "null" else {}
+decls = [v for v in (data.values() if data else []) if v and v.get('date') == today]
+total_ok = sum(sum(float(l.get('qtyOK',0)) for l in (d.get('lines',[]) or [])) for d in decls)
+total_nc = sum(sum(float(l.get('qtyNC',0)) for l in (d.get('lines',[]) or [])) for d in decls)
+lines_text = '\n'.join([f"• {d.get('ofId','?')} | {d.get('operation','?')} | {d.get('operator','?')} | ✅{int(sum(float(l.get('qtyOK',0)) for l in (d.get('lines',[]) or [])))} ❌{int(sum(float(l.get('qtyNC',0)) for l in (d.get('lines',[]) or [])))}" for d in decls]) or '_Aucune déclaration_'
+msg = {'blocks':[
+  {'type':'header','text':{'type':'plain_text','text':f'📋 Récap production — {today}','emoji':True}},
+  {'type':'section','fields':[
+    {'type':'mrkdwn','text':f'*Déclarations :*\n{len(decls)}'},
+    {'type':'mrkdwn','text':f'*Total OK :*\n✅ {int(total_ok)} pcs'},
+    {'type':'mrkdwn','text':f'*Total NC :*\n❌ {int(total_nc)} pcs'},
+  ]},
+  {'type':'section','text':{'type':'mrkdwn','text':lines_text}},
+  {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'Voir dans l\'app','emoji':True},'url':'https://aminesfax-debug.github.io/UND-Center/','style':'primary'}]}
+]}
+req = urllib.request.Request(os.environ['SLACK_PROD_WEBHOOK'],data=json.dumps(msg).encode(),method='POST',headers={'Content-Type':'application/json'})
+urllib.request.urlopen(req)
+print('Récap envoyé!')
+PYEOF
+        env:
+          SLACK_PROD_WEBHOOK: ${{ secrets.SLACK_PROD_WEBHOOK }}
+          TODAY: $(TZ="Africa/Tunis" date +%Y-%m-%d)
