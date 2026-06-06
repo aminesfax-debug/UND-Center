@@ -1543,9 +1543,24 @@ function genPdfOrder(oid){
       var cfg=l.facadeConfig||{};
       var w_dim=cfg.width||cfg.w||l.largeur||"—";
       var h_dim=cfg.height||cfg.h||l.dim||"—";
-      var pos=(l.hingePositions&&l.hingePositions.length?l.hingePositions:cfg.hingePositions)||[];
+      var pos=[];
+      if(l.hingePositions&&l.hingePositions.length>0)pos=l.hingePositions;
+      else if(cfg.hingePositions&&cfg.hingePositions.length>0)pos=cfg.hingePositions;
       var hingeType=l.hingeType||cfg.hingeType||"";
       var supplied=l.hingesSupplied!==false&&cfg.hingesSupplied!==false;
+      var hingeCount=l.hingeCount||cfg.hingeCount||pos.length;
+      // If still no positions but we have height, calculate them
+      if(pos.length===0&&(cfg.height||l.dim)){
+        var hPx=parseFloat(cfg.height||l.dim)||0;
+        if(hPx>0){
+          var cnt=hPx/10<=100?2:hPx/10<=160?3:hPx/10<=240?4:5;
+          var f135=135,last=hPx-135;
+          if(cnt===1)pos=[Math.round(hPx/2)];
+          else if(cnt===2)pos=[f135,last];
+          else{pos=[f135];var st=(last-f135)/(cnt-1);for(var k=1;k<cnt-1;k++)pos.push(Math.round(f135+k*st));pos.push(last);}
+          hingeCount=cnt;
+        }
+      }
       var colorVal=l.color||(cfg.color==="Personnalisée"?cfg.cc:cfg.color)||"";
       facDetail+='<div style="border:1px solid #DDD;border-radius:6px;padding:12px;margin-bottom:10px;break-inside:avoid">';
       facDetail+='<div style="font-weight:bold;font-size:12px;margin-bottom:8px;color:#17171A">'+(i+1)+'. '+esc(l.designation||l.ref)+'</div>';
@@ -3192,9 +3207,24 @@ function genPdfFromPending(id){
       var cfg=l.facadeConfig||{};
       var w_dim=cfg.width||cfg.w||l.largeur||"—";
       var h_dim=cfg.height||cfg.h||l.dim||"—";
-      var pos=(l.hingePositions&&l.hingePositions.length?l.hingePositions:cfg.hingePositions)||[];
+      var pos=[];
+      if(l.hingePositions&&l.hingePositions.length>0)pos=l.hingePositions;
+      else if(cfg.hingePositions&&cfg.hingePositions.length>0)pos=cfg.hingePositions;
       var hingeType=l.hingeType||cfg.hingeType||"";
       var supplied=l.hingesSupplied!==false&&cfg.hingesSupplied!==false;
+      var hingeCount=l.hingeCount||cfg.hingeCount||pos.length;
+      // If still no positions but we have height, calculate them
+      if(pos.length===0&&(cfg.height||l.dim)){
+        var hPx=parseFloat(cfg.height||l.dim)||0;
+        if(hPx>0){
+          var cnt=hPx/10<=100?2:hPx/10<=160?3:hPx/10<=240?4:5;
+          var f135=135,last=hPx-135;
+          if(cnt===1)pos=[Math.round(hPx/2)];
+          else if(cnt===2)pos=[f135,last];
+          else{pos=[f135];var st=(last-f135)/(cnt-1);for(var k=1;k<cnt-1;k++)pos.push(Math.round(f135+k*st));pos.push(last);}
+          hingeCount=cnt;
+        }
+      }
       var colorVal=l.color||(cfg.color==="Personnalisée"?cfg.cc:cfg.color)||"";
       facDetail+='<div style="border:1px solid #DDD;border-radius:6px;padding:12px;margin-bottom:10px;break-inside:avoid">';
       facDetail+='<div style="font-weight:bold;font-size:12px;margin-bottom:8px;color:#17171A">'+(i+1)+'. '+esc(l.designation||l.ref)+'</div>';
@@ -3288,6 +3318,10 @@ function saveFacadeConf(){
   const w=parseFloat(cfg.width)||0;
   const h=parseFloat(cfg.height)||0;
   const autoPrice=getFacadePrice(cfg.model,w,h);
+  // Auto-calculate hinge positions if not set
+  const hingeCount=h>0?calcHingeCount(h):0;
+  const hingePos=(cfg.hingePositions&&cfg.hingePositions.length===hingeCount&&hingeCount>0)?
+    cfg.hingePositions : (h>0?calcHingePositions(hingeCount,h):[]);
   const facadeLine={
     id:editId!==null?editId:"fac-"+Date.now(),
     ref:cfg.model,
@@ -3300,9 +3334,10 @@ function saveFacadeConf(){
     prixTarif:autoPrice!==null?autoPrice:"",
     remise:0,
     hingesSupplied:cfg.hingesSupplied!==false,
-    hingePositions:cfg.hingePositions||[],
+    hingePositions:hingePos,
+    hingeCount:hingeCount,
     hingeType:(FACADE_MODELS[cfg.model]||{}).hingeType||"",
-    facadeConfig:JSON.parse(JSON.stringify(cfg)),
+    facadeConfig:{...JSON.parse(JSON.stringify(cfg)),hingePositions:hingePos},
   };
   if(editId!==null){
     S.form.facadeLines=S.form.facadeLines.map(f=>f.id===editId?facadeLine:f);
