@@ -4329,22 +4329,26 @@ function renderPmEditor(){
 // ── GAMMES helpers ─────────────────────────────────────────────────────────
 // Normalise a gamme entry to {poste, machines:[]}
 function normGammeEntry(e){
+  if(!e)return{poste:"",machines:[]};
   if(typeof e==="string")return{poste:e,machines:[]};
-  if(e&&e.poste)return{poste:e.poste,machines:e.machines||[]};
-  return{poste:String(e),machines:[]};
+  if(typeof e==="object"&&e.poste!==undefined)return{poste:String(e.poste||""),machines:Array.isArray(e.machines)?e.machines:[]};
+  return{poste:"",machines:[]};
+}
+function normGammeEntries(entries){
+  if(!entries)return[];
+  // Handle Firebase object format {0:{...},1:{...}} or array [{...}]
+  const arr=Array.isArray(entries)?entries:Object.values(entries);
+  return arr.map(e=>normGammeEntry(e)).filter(e=>e.poste);
 }
 // Get postes array (strings) from a gamme
 function gammePostes(ref,gname){
-  const g=GAMMES[ref]&&GAMMES[ref][gname];
-  if(!g)return[];
-  return g.map(e=>normGammeEntry(e).poste);
+  return normGammeEntries(GAMMES[ref]&&GAMMES[ref][gname]).map(e=>e.poste);
 }
 // Get machines for a poste in a gamme
 function gammeMachines(ref,gname,poste){
-  const g=GAMMES[ref]&&GAMMES[ref][gname];
-  if(!g)return[];
-  const entry=g.find(e=>normGammeEntry(e).poste===poste);
-  return entry?normGammeEntry(entry).machines:[];
+  const entries=normGammeEntries(GAMMES[ref]&&GAMMES[ref][gname]);
+  const entry=entries.find(e=>e.poste===poste);
+  return entry?entry.machines:[];
 }
 // Save GAMMES ref to Firebase
 function saveGammesToFB(ref){
@@ -4435,6 +4439,7 @@ function renderParamsGammes(){
   const allRefs=Object.keys(GAMMES);
   const sel=P_STATE.selRef;
   const editG=P_STATE.editGamme;
+  const ws=getWS();
   let h=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
     ${allRefs.map(ref=>`<button onclick="P_STATE.selRef='${ref}';P_STATE.editGamme=null;render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${sel===ref?"#17171A":"var(--border)"};background:${sel===ref?"#17171A":"transparent"};color:${sel===ref?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${ref}</button>`).join("")}
   </div>`;
@@ -4444,34 +4449,51 @@ function renderParamsGammes(){
     <div class="card-title"><i class="ti ti-sitemap"></i>Gammes — ${sel}
       <button onclick="addGamme('${sel}')" class="btn btn-sm" style="margin-left:auto"><i class="ti ti-plus"></i>Ajouter</button>
     </div>
-    ${Object.entries(gammes).map(([gname,postes])=>{
+    ${Object.entries(gammes).map(([gname,rawEntries])=>{
       const isEdit=editG&&editG.ref===sel&&editG.name===gname;
+      const normed=normGammeEntries(rawEntries);
       return`<div style="margin-bottom:12px;border:1px solid ${isEdit?"var(--teal)":"var(--border)"};border-radius:var(--rl);overflow:hidden">
         <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:${isEdit?"var(--teal-bg)":"var(--surface2)"}">
           ${isEdit?`<input type="text" id="edit-gname" value="${esc(gname)}" style="font-size:13px;font-weight:700;flex:1">`:
-            `<strong style="flex:1;font-size:13px">${gname}</strong>`}
-          <button onclick="${isEdit?"saveEditGamme('"+sel+"','"+gname+"')":"P_STATE.editGamme={ref:'"+sel+"',name:'"+gname+"',postes:"+JSON.stringify(postes)+"};render()"}" style="padding:4px 10px;border-radius:var(--r);border:1px solid ${isEdit?"var(--teal)":"var(--border)"};background:${isEdit?"var(--teal)":"#FFF"};color:${isEdit?"#FFF":"var(--text2)"};font-size:12px;cursor:pointer"><i class="ti ${isEdit?"ti-check":"ti-pencil"}"></i></button>
-          ${isEdit?`<button onclick="P_STATE.editGamme=null;render()" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);font-size:12px;cursor:pointer"><i class="ti ti-x"></i></button>`:""}
+            `<strong style="flex:1;font-size:13px">${esc(gname)}</strong>`}
+          ${isEdit?
+            `<button onclick="saveEditGamme('${sel}','${gname}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--teal);background:var(--teal);color:#FFF;font-size:12px;cursor:pointer"><i class="ti ti-check"></i></button>
+             <button onclick="P_STATE.editGamme=null;render()" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);font-size:12px;cursor:pointer"><i class="ti ti-x"></i></button>`:
+            `<button onclick="startEditGamme('${sel}','${gname}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid var(--border);background:#FFF;color:var(--text2);font-size:12px;cursor:pointer"><i class="ti ti-pencil"></i></button>`}
           <button onclick="deleteGamme('${sel}','${gname}')" style="padding:4px 10px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:12px;cursor:pointer"><i class="ti ti-trash"></i></button>
         </div>
-        <div style="padding:10px 14px">
+        <div style="padding:12px 14px">
           ${isEdit?`
-            <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Postes séparés par des virgules :</div>
-            <textarea id="edit-gpostes" rows="2" style="width:100%;font-size:13px">${(editG.postes||postes).join(", ")}</textarea>`:`
-          <div style="display:flex;flex-direction:column;gap:6px">
-            ${getGammeOps(sel,gname).map((op,i)=>{
-              const machines=(op.machines||[]).map(mId=>{
-                const wsObj=getWS().find(w=>w.id===mId);
-                return wsObj?wsObj.name:mId;
-              });
-              return`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;white-space:nowrap">${i+1}. ${op.name||op}</span>
-                ${i<getGammeOps(sel,gname).length-1?'<i class="ti ti-arrow-right" style="color:var(--text3);font-size:11px"></i>':""}
-                ${machines.length>0?`<div style="display:flex;gap:4px;flex-wrap:wrap">${machines.map(m=>`<span style="background:var(--teal-bg);color:var(--teal);border-radius:20px;padding:2px 8px;font-size:11px;font-weight:600"><i class="ti ti-server" style="font-size:10px"></i> ${m}</span>`).join("")}</div>`:
-                `<button onclick="editGammeMachines('${sel}','${gname}',${i})" style="font-size:11px;padding:2px 8px;border-radius:20px;border:1px dashed var(--border);color:var(--text3);cursor:pointer;background:transparent"><i class="ti ti-plus"></i> machine</button>`}
-                ${machines.length>0?`<button onclick="editGammeMachines('${sel}','${gname}',${i})" style="font-size:11px;padding:2px 6px;border-radius:var(--r);border:1px solid var(--border);cursor:pointer;background:transparent"><i class="ti ti-pencil"></i></button>`:""}
-              </div>`;
-            }).join("")}
+            <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Modifiez chaque opération et cochez les machines concernées :</div>
+            ${(editG.entries||[]).map((entry,ei)=>`
+            <div style="margin-bottom:10px;padding:10px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+              <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+                <span style="font-size:12px;font-weight:700;color:var(--text3)">${ei+1}.</span>
+                <input type="text" value="${esc(entry.poste||"")}" placeholder="Nom de l'opération"
+                  oninput="P_STATE.editGamme.entries[${ei}].poste=this.value"
+                  style="font-size:13px;font-weight:600;flex:1">
+                <button onclick="P_STATE.editGamme.entries.splice(${ei},1);render()" style="padding:4px 8px;border-radius:var(--r);border:1px solid #F09595;background:#FCEBEB;color:#A32D2D;font-size:11px;cursor:pointer"><i class="ti ti-x"></i></button>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                ${ws.map(w=>{
+                  const checked=(entry.machines||[]).includes(w.id);
+                  return`<label style="display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;border:1.5px solid ${checked?"var(--teal)":"var(--border)"};background:${checked?"var(--teal-bg)":"#FFF"};cursor:pointer;font-size:11px;font-weight:${checked?"600":"400"};color:${checked?"var(--teal)":"var(--text2)"}">
+                    <input type="checkbox" ${checked?"checked":""} onchange="toggleGammeMachine(${ei},'${w.id}',this.checked)" style="cursor:pointer;margin:0">
+                    ${esc(w.name)}
+                  </label>`;
+                }).join("")}
+              </div>
+            </div>`).join("")}
+            <button onclick="P_STATE.editGamme.entries.push({poste:'',machines:[]});render()" class="btn btn-sm" style="margin-top:4px;width:100%;border-style:dashed"><i class="ti ti-plus"></i>Ajouter une opération</button>
+          `:`
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${normed.length===0?`<span style="font-size:12px;color:var(--text3);font-style:italic">Aucune opération — cliquez ✏️ pour configurer</span>`:""}
+            ${normed.map((entry,i)=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="background:#FFF;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;white-space:nowrap">${i+1}. ${esc(entry.poste)}</span>
+              ${entry.machines&&entry.machines.length>0?
+                `<div style="display:flex;gap:4px;flex-wrap:wrap">${entry.machines.map(mId=>{const w=ws.find(x=>x.id===mId);return`<span style="background:var(--teal-bg);color:var(--teal);border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600"><i class="ti ti-server" style="font-size:10px"></i> ${esc(w?w.name:mId)}</span>`;}).join("")}</div>`:
+                `<span style="font-size:11px;color:#C77;font-style:italic">⚠ aucune machine</span>`}
+            </div>`).join("")}
           </div>`}
         </div>
       </div>`;
@@ -4479,13 +4501,21 @@ function renderParamsGammes(){
   </div>`;
   return h;
 }
+function startEditGamme(ref,gname){
+  const entries=normGammeEntries(GAMMES[ref]&&GAMMES[ref][gname]);
+  P_STATE.editGamme={ref,name:gname,entries:JSON.parse(JSON.stringify(entries))};
+  render();
+}
 function addGamme(ref){
   const name=prompt("Nom de la nouvelle gamme :");
   if(!name)return;
+  const postesStr=prompt("Opérations séparées par virgule (ex: Découpe presse,Ébavurage,Peinture,Emballage)","Découpe presse,Ébavurage,Peinture,Emballage");
+  if(!postesStr)return;
   if(!GAMMES[ref])GAMMES[ref]={};
-  GAMMES[ref][name]=[{poste:"Coupe",machines:[]},{poste:"Ébavurage",machines:[]},{poste:"Peinture",machines:[]},{poste:"Emballage",machines:[]}];
+  const entries=postesStr.split(",").map(p=>({poste:p.trim(),machines:[]})).filter(e=>e.poste);
+  GAMMES[ref][name]=entries;
   saveGammesToFB(ref);
-  P_STATE.editGamme={ref,name,entries:GAMMES[ref][name]};
+  P_STATE.editGamme={ref,name,entries:JSON.parse(JSON.stringify(entries))};
   render();
 }
 function toggleGammeMachine(entryIdx,wsId,checked){
@@ -4499,72 +4529,13 @@ function saveEditGamme(ref,oldName){
   const newNameEl=document.getElementById("edit-gname");
   if(!newNameEl)return;
   const newName=newNameEl.value.trim();
-  const entries=(P_STATE.editGamme&&P_STATE.editGamme.entries)||[];
+  const entries=normGammeEntries((P_STATE.editGamme&&P_STATE.editGamme.entries)||[]);
   const validEntries=entries.filter(e=>e.poste&&e.poste.trim());
   if(!newName||!validEntries.length){alert("Nom et au moins une opération obligatoires.");return;}
   if(newName!==oldName){GAMMES[ref][newName]=validEntries;delete GAMMES[ref][oldName];}
   else{GAMMES[ref][oldName]=validEntries;}
   saveGammesToFB(ref);
   P_STATE.editGamme=null;render();
-}
-
-function editGammeMachines(ref,gname,opIdx){
-  // Set edit state for machine assignment
-  P_STATE.machineEdit={ref,gname,opIdx};
-  render();
-}
-
-function renderMachineEditModal(){
-  if(!P_STATE.machineEdit)return"";
-  const{ref,gname,opIdx}=P_STATE.machineEdit;
-  const ws=getWS();
-  const ops=getGammeOps(ref,gname);
-  const op=ops[opIdx];
-  if(!op)return"";
-  const curMachines=op.machines||[];
-  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px">
-    <div style="background:#FFF;border-radius:var(--rl);padding:20px;max-width:480px;width:100%">
-      <div style="font-weight:700;font-size:15px;margin-bottom:4px">Machines — ${op.name||op}</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Sélectionnez les machines pouvant réaliser cette opération</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-        ${ws.map(w=>`<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid ${curMachines.includes(w.id)?"var(--teal)":"var(--border)"};border-radius:var(--r);cursor:pointer;background:${curMachines.includes(w.id)?"var(--teal-bg)":"#FFF"}">
-          <input type="checkbox" ${curMachines.includes(w.id)?"checked":""} onchange="toggleGammeMachine('${w.id}',this.checked)" style="width:18px;height:18px;cursor:pointer">
-          <div>
-            <div style="font-weight:600;font-size:13px">${esc(w.name)}</div>
-            <div style="font-size:11px;color:var(--text2);font-family:monospace">${w.id}</div>
-          </div>
-        </label>`).join("")}
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button onclick="P_STATE.machineEdit=null;render()" class="btn">Annuler</button>
-        <button onclick="saveGammeMachines()" class="btn btn-teal"><i class="ti ti-check"></i>Enregistrer</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-function toggleGammeMachine(wsId,checked){
-  if(!P_STATE.machineEdit)return;
-  const{ref,gname,opIdx}=P_STATE.machineEdit;
-  const ops=getGammeOps(ref,gname);
-  const op=ops[opIdx];
-  if(!op)return;
-  if(!op.machines)op.machines=[];
-  if(checked){if(!op.machines.includes(wsId))op.machines.push(wsId);}
-  else{op.machines=op.machines.filter(m=>m!==wsId);}
-  // Update GAMMES in memory
-  if(!GAMMES[ref])GAMMES[ref]={};
-  GAMMES[ref][gname]=ops;
-}
-
-function saveGammeMachines(){
-  if(!P_STATE.machineEdit)return;
-  const{ref,gname}=P_STATE.machineEdit;
-  const ops=getGammeOps(ref,gname);
-  GAMMES[ref][gname]=ops;
-  if(db)db.ref("config/gammes/"+ref+"/"+gname).set(ops);
-  P_STATE.machineEdit=null;
-  render();
 }
 
 function deleteGamme(ref,name){
