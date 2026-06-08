@@ -526,7 +526,7 @@ let GAMMES={
 // Default postes for any ref not in GAMMES
 const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null,planProposal:null};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,editOrderId:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null,planProposal:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -573,6 +573,9 @@ if(FB_ACTIVE){
 function ls_get(k){try{const r=localStorage.getItem(k);return r?JSON.parse(r):null;}catch(e){return null;}}
 function ls_set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 
+function deleteOrder(id){if(!confirm('Supprimer '+id+' ?'))return;S.orders=S.orders.filter(x=>x.id!==id);saveOrders();render();}
+function startEditOrder(id){S.editOrderId=id;S.expandedOrder=id;render();}
+function saveOrderEdit(id){const o=S.orders.find(x=>x.id===id);if(!o)return;const g=k=>{const el=document.getElementById(k);return el?el.value.trim():null;};const cl=g('eoc_client'),dl=g('eoc_deadline'),rp=g('eoc_rep'),pm=g('eoc_payment');if(cl!==null)o.client=cl;if(dl!==null)o.deadline=dl;if(rp!==null)o.rep=rp;if(pm!==null)o.paymentTerms=pm;S.editOrderId=null;saveOrders();render();}
 function saveOrders(){
   if(db) db.ref("orders").set(S.orders);
   else ls_set(K_ORDERS,S.orders);
@@ -1440,7 +1443,7 @@ function renderClients(){
           <button onclick="event.stopPropagation();genPdfOrder('${o.id}')" title="Confirmation client" style="background:none;border:none;cursor:pointer;color:var(--text2);padding:4px;border-radius:var(--r)" onmouseover="this.style.color='var(--teal)'" onmouseout="this.style.color='var(--text2)'">
             <i class="ti ti-file-invoice" style="font-size:18px"></i>
           </button>
-          <select class="st-sel" data-oid="${o.id}" onclick="event.stopPropagation()" style="font-size:11px;padding:3px 5px;width:auto">${statusOpts(o.status)}</select>
+          <button onclick="event.stopPropagation();startEditOrder('${o.id}')" title="Modifier" style="background:none;border:none;cursor:pointer;color:var(--text2);padding:4px"><i class="ti ti-pencil" style="font-size:16px"></i></button> <button onclick="event.stopPropagation();deleteOrder('${o.id}')" title="Supprimer" style="background:none;border:none;cursor:pointer;color:#e55;padding:4px"><i class="ti ti-trash" style="font-size:16px"></i></button> <select class="st-sel" data-oid="${o.id}" onclick="event.stopPropagation()" style="font-size:11px;padding:3px 5px;width:auto">${statusOpts(o.status)}</select>
           <i class="ti ti-chevron-${isOpen?"up":"down"}" style="color:var(--text3);font-size:16px"></i>
         </div>
       </div>
