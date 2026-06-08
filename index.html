@@ -4577,7 +4577,7 @@ function renderParamsStandards(){
     ${gammes.map(g=>`<button onclick="P_STATE.selGamme='${g}';render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${selG===g?"#17171A":"var(--border)"};background:${selG===g?"#17171A":"transparent"};color:${selG===g?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${g}</button>`).join("")}
   </div>`;
   if(!selG)return h+`<div class="card"><div class="empty"><p>Sélectionnez une gamme.</p></div></div>`;
-  const postes=GAMMES[sel][selG]||[];
+  const postes=gammePostes(sel,selG);
   const dims=DIMS.filter(d=>d!=="");
   h+=`<div class="card" style="padding:0;overflow:hidden">
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -4679,6 +4679,7 @@ loadAll().then(()=>{
   }
   if(db){
     db.ref("standards").once("value").then(s=>{S.standards=s.val()||{};}).catch(()=>{});
+    db.ref("config/gammes").once("value").then(s=>{var g=s.val();if(g){Object.keys(g).forEach(function(rf){GAMMES[rf]={};Object.keys(g[rf]).forEach(function(gn){GAMMES[rf][gn]=normGammeEntries(g[rf][gn]);});});render();}}).catch(function(){});
     db.ref("config/slackWebhook").once("value").then(s=>{if(s.val())SLACK_WEBHOOK=s.val();}).catch(()=>{});
     db.ref("priceMatrices").once("value").then(s=>{if(s.val())S.priceMatrices=Object.values(s.val()).filter(Boolean);}).catch(()=>{});
     db.ref("declarations").once("value").then(s=>{if(s.val())S.declarations=Object.values(s.val()).filter(Boolean);}).catch(()=>{});
