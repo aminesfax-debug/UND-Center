@@ -1748,6 +1748,7 @@ function renderLaunch(){
             ${pill(OF_STATUS[pf.status]?.label||pf.status,OF_STATUS[pf.status]?.pill||"st-wait")}
           </div>
           <div style="display:flex;align-items:center;gap:8px">
+            ${pf.status==="LANCÉ"?`<button onclick="event.stopPropagation();scheduleExistingOF('${pf.id}')" class="btn btn-sm btn-primary" style="font-size:11px;padding:4px 10px"><i class="ti ti-calendar-plus"></i>Planifier</button>`:""}
             <select onclick="event.stopPropagation()" onchange="updateOFStatus('${pf.id}',this.value)" style="font-size:11px;padding:3px 5px;width:auto">
               ${Object.entries(OF_STATUS).map(([k,v])=>`<option value="${k}"${pf.status===k?" selected":""}>${v.label}</option>`).join("")}
             </select>
@@ -1779,6 +1780,22 @@ function renderLaunch(){
     }).join("");
   }
   return h;
+}
+
+function scheduleExistingOF(pfId){
+  const pf=S.ofs.find(o=>o.id===pfId);
+  if(!pf||!pf.groups||!pf.groups[0]){alert("OF introuvable.");return;}
+  const g=pf.groups[0];
+  const ref=g.ref||pf.ref;
+  const gamme=g.gamme||"";
+  const totalPcs=g.totalPcs||0;
+  const lines=g.lines||[];
+  const postesArr=gamme&&GAMMES[ref]&&GAMMES[ref][gamme]
+    ?normGammeEntries(GAMMES[ref][gamme]).map(function(e){return e.poste;}).filter(Boolean)
+    :[];
+  if(!postesArr.length){alert("Gamme introuvable pour cet OF. Vérifiez Paramètres → Gammes.");return;}
+  S.quickSchedule={pfId,ref,postes:postesArr,gamme,totalPcs,lines};
+  render();
 }
 
 function toggleOFOrder(ref,ofId){
