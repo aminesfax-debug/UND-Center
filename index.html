@@ -1782,7 +1782,7 @@ function renderLaunch(){
   return h;
 }
 
-function scheduleExistingOF(pfId){
+async function scheduleExistingOF(pfId){
   const pf=S.ofs.find(o=>o.id===pfId);
   if(!pf||!pf.groups||!pf.groups[0]){alert("OF introuvable.");return;}
   const g=pf.groups[0];
@@ -1790,7 +1790,15 @@ function scheduleExistingOF(pfId){
   const gamme=g.gamme||"";
   const totalPcs=g.totalPcs||0;
   const lines=g.lines||[];
-  // Priorité : GAMMES chargé depuis Firebase ; fallback : postes stockés dans l'OF
+  // Si GAMMES pas encore chargé pour ce ref/gamme, on le charge depuis Firebase
+  if(db&&ref&&(!GAMMES[ref]||!GAMMES[ref][gamme])){
+    await db.ref("config/gammes/"+ref).once("value").then(function(s){
+      if(s.val()){
+        GAMMES[ref]=GAMMES[ref]||{};
+        Object.keys(s.val()).forEach(function(gn){GAMMES[ref][gn]=normGammeEntries(s.val()[gn]);});
+      }
+    }).catch(function(){});
+  }
   let postesArr=[];
   if(gamme&&GAMMES[ref]&&GAMMES[ref][gamme]){
     postesArr=normGammeEntries(GAMMES[ref][gamme]).map(function(e){return e.poste;}).filter(Boolean);
@@ -1798,7 +1806,7 @@ function scheduleExistingOF(pfId){
   if(!postesArr.length&&g.postes&&g.postes.length){
     postesArr=normGammeEntries(g.postes).map(function(e){return e.poste;}).filter(Boolean);
   }
-  if(!postesArr.length){alert("Aucun poste trouvé pour cet OF. Vérifiez Paramètres → Gammes.");return;}
+  if(!postesArr.length){alert("Gamme introuvable. Configurez-la dans Paramètres → Gammes puis relancez.");return;}
   S.quickSchedule={pfId,ref,postes:postesArr,gamme,totalPcs,lines};
   render();
 }
