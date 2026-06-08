@@ -1790,10 +1790,15 @@ function scheduleExistingOF(pfId){
   const gamme=g.gamme||"";
   const totalPcs=g.totalPcs||0;
   const lines=g.lines||[];
-  const postesArr=gamme&&GAMMES[ref]&&GAMMES[ref][gamme]
-    ?normGammeEntries(GAMMES[ref][gamme]).map(function(e){return e.poste;}).filter(Boolean)
-    :[];
-  if(!postesArr.length){alert("Gamme introuvable pour cet OF. Vérifiez Paramètres → Gammes.");return;}
+  // Priorité : GAMMES chargé depuis Firebase ; fallback : postes stockés dans l'OF
+  let postesArr=[];
+  if(gamme&&GAMMES[ref]&&GAMMES[ref][gamme]){
+    postesArr=normGammeEntries(GAMMES[ref][gamme]).map(function(e){return e.poste;}).filter(Boolean);
+  }
+  if(!postesArr.length&&g.postes&&g.postes.length){
+    postesArr=normGammeEntries(g.postes).map(function(e){return e.poste;}).filter(Boolean);
+  }
+  if(!postesArr.length){alert("Aucun poste trouvé pour cet OF. Vérifiez Paramètres → Gammes.");return;}
   S.quickSchedule={pfId,ref,postes:postesArr,gamme,totalPcs,lines};
   render();
 }
