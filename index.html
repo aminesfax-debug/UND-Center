@@ -526,7 +526,7 @@ let GAMMES={
 // Default postes for any ref not in GAMMES
 const DEFAULT_POSTES=["Coupe","Ébavurage","Peinture","Emballage"];
 
-let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,editOrderId:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null,planProposal:null};
+let S={tab:"dashboard",orders:[],plan:{},bons:[],ofs:[],pendingOrders:[],weekOff:0,form:null,filter:"TOUS",planSel:null,openOf:null,openApur:null,subTab:"articles",articlesGrouped:false,selectedArticles:new Set(),ofLaunchMode:false,ofLaunchGroups:{},ofGammeChoices:{},reviewId:null,expandedOrder:null,editOrderId:null,facadeConf:{open:false,editId:null,cfg:null},dashFilter:"mois",ofSelByRef:{},openLaunchRef:null,standards:{},standardsForm:null,quickSchedule:null,priceMatrices:[],declarations:[],declForm:null,planDate:null,planShift:"all",planClickKey:null,planProposal:null};
 
 // ════════════════════════════════════════════════════════
 // ─── FIREBASE CONFIG ─── Collez votre config ici ───────
@@ -1632,6 +1632,7 @@ function genPdfOrder(oid){
 // ═══════════════════════════════════════════
 function renderLaunch(){
   if(S.ofLaunchMode)return renderOFPanel();
+  if(S.quickSchedule)return renderQuickSchedule();
   if(S.standardsForm)return renderStandardsForm();
   const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
 
@@ -1817,8 +1818,18 @@ function lancerOFRef(ref){
   S.orders=S.orders.map(o=>sel.has(o.id)?{...o,status:"LANCÉ"}:o);
   saveOrders();
   if(S.ofSelByRef)delete S.ofSelByRef[ref];
-  // Open standards form
-  S.standardsForm={pfId,ref,postes:postes||[],totalPcs,gamme};
+  // Smart route: quick schedule si standards existent, sinon formulaire complet
+  const _postNames=normGammeEntries(postes||[]).map(function(e){return e.poste;}).filter(Boolean);
+  const _existStd=S.standards[ref];
+  const _hasAllStds=_postNames.length>0&&_existStd&&_postNames.every(function(p){
+    if(_existStd[gamme]){var ds=Object.keys(_existStd[gamme]);return ds.some(function(d){return parseFloat(((_existStd[gamme][d])||{})[p])>0;});}
+    return parseFloat(_existStd[p])>0;
+  });
+  if(_hasAllStds){
+    S.quickSchedule={pfId,ref,postes:_postNames,gamme,totalPcs,lines:pf.groups[0].lines};
+  } else {
+    S.standardsForm={pfId,ref,postes:postes||[],totalPcs,gamme};
+  }
   S.openLaunchRef=null;
   render();
 }
@@ -1989,7 +2000,7 @@ function saveStandards(propose){
   }
 }
 
-function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
+function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMins){
   if(!S.plan||typeof S.plan!=="object")S.plan={};
   const POSTE_MAP={
     "Découpe presse":"press60","Reprise Presse":"press60",
@@ -2007,6 +2018,7 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
   const hpjN=parseFloat(hpj)||8;
   const secPerDay=hpjN*3600;
   let currentDate=startDate;
+  let currentMins=typeof startMins==="number"?startMins:8*60;
 
   // Get gamme ops with machine assignments
   const gamme=S.standardsForm&&S.standardsForm.gamme;
@@ -2029,11 +2041,10 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
     const nbDays=Math.max(1,Math.ceil(totalSec/secPerDay));
     const totalMin=Math.round(totalSec/60);
 
-    // Find earliest available slot on this machine
-    const suggested=findEarliestSlot(wsId,currentDate);
-    const dateStr=suggested.date;
-    const timeStr=suggested.time; // "HH:MM"
-    const timeKey=timeStr.replace(":",""); // "HHMM"
+    // Use cascade time: currentDate + currentMins
+    const dateStr=currentDate;
+    const timeStr=minsToTime(currentMins);
+    const timeKey=minsToKey(currentMins);
 
     // Fill planning slots
     const baseMins=parseInt(timeKey.slice(0,2))*60+parseInt(timeKey.slice(2));
@@ -2048,8 +2059,11 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
       start:dateStr,timeKey,totalMin,totalSec:Math.round(totalSec),nbDays,tUnit,
       suggestedTime:timeStr});
 
-    // Next operation starts day after (flux tiré: +30min)
-    currentDate=addWorkingDays(dateStr,0); // same or next day
+    // Cascade: op terminée + 1h de battement → opération suivante
+    currentMins+=totalMin+60;
+    const _isSatDow=new Date(currentDate+"T00:00:00").getDay()===6;
+    const _dayEnd=_isSatDow?18*60:23*60;
+    if(currentMins>=_dayEnd){currentDate=addWorkingDays(currentDate,1);currentMins=8*60;}
   });
 
   if(db)db.ref("plan").update(Object.fromEntries(
@@ -2066,6 +2080,86 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj){
   setTab("planning");
 }
  
+function renderQuickSchedule(){
+  if(!S.quickSchedule)return"";
+  const{pfId,ref,postes,gamme,totalPcs,lines}=S.quickSchedule;
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const gammeOps=getGammeOps(ref,gamme);
+  const opDurs=postes.map(poste=>{
+    let totalSec=0;
+    toA(lines).filter(Boolean).forEach(line=>{
+      const dim=String(line.dim||"");
+      const pcs=nbPcsFromLine(line);
+      const std=getStdTime(ref,gamme,dim,poste);
+      if(std>0&&pcs>0)totalSec+=pcs*std;
+    });
+    const totalMin=Math.round(totalSec/60);
+    const nSlots=Math.ceil(totalSec/1800);
+    const opObj=gammeOps.find(op=>(op.name||op)===poste);
+    const machines=(opObj&&opObj.machines&&opObj.machines.length)?opObj.machines:[];
+    const wsName=machines.length?machines.map(m=>{const w=getWS().find(x=>x.id===m);return w?w.name:m;}).join(", "):"—";
+    return{poste,totalSec,totalMin,nSlots,wsName};
+  });
+  const anyMissing=opDurs.some(o=>o.totalSec===0);
+  return`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn btn-sm" onclick="S.quickSchedule=null;render()"><i class="ti ti-arrow-left"></i>Retour</button>
+    <span style="font-weight:700;font-size:15px"><i class="ti ti-calendar-event" style="vertical-align:-2px;margin-right:4px"></i>Planification — ${pfId}</span>
+  </div>
+  ${anyMissing?`<div style="background:#FFF3CD;border:1px solid #FFC107;border-radius:var(--rl);padding:10px 14px;margin-bottom:14px;font-size:13px;color:#856404">⚠️ Certains postes n'ont pas de temps standard pour les dimensions de cet OF. Complétez dans Paramètres → Temps standards.</div>`:""}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title"><i class="ti ti-settings-2"></i>${ref} · ${gamme} · ${totalPcs.toLocaleString("fr-FR")} pcs</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+      ${opDurs.map((op,i)=>`<div style="display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:10px 12px;background:var(--surface2);border-radius:var(--r);border:1px solid var(--border)">
+        <span style="font-size:12px;font-weight:700;color:var(--text3);text-align:center">${i+1}</span>
+        <div>
+          <div style="font-weight:600;font-size:13px">${op.poste}</div>
+          <div style="font-size:11px;color:var(--text2)">Machine : ${op.wsName}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:13px;font-weight:600;color:var(--teal)">${op.totalMin>0?op.totalMin+" min":"—"}</div>
+          <div style="font-size:11px;color:var(--text3)">${op.nSlots>0?op.nSlots+" créneaux":""}</div>
+        </div>
+      </div>`).join("")}
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title"><i class="ti ti-calendar-plus"></i>Date et heure de démarrage</div>
+    <div class="form-grid" style="margin-top:12px">
+      <div class="form-group"><label>Date de début</label><input type="date" id="qs-date" value="${todayStr()}" min="${todayStr()}"></div>
+      <div class="form-group"><label>Heure de début</label><input type="time" id="qs-hour" value="08:00" step="1800"></div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-top:8px"><i class="ti ti-info-circle"></i> Les opérations s'enchaînent avec 1h de battement entre chacune.</div>
+  </div>
+  <div style="display:flex;justify-content:flex-end">
+    <button class="btn btn-primary" onclick="quickScheduleGo('${pfId}')"><i class="ti ti-calendar-plus"></i>Planifier les opérations</button>
+  </div>`;
+}
+
+function quickScheduleGo(pfId){
+  if(!S.quickSchedule)return;
+  const{ref,postes,gamme,totalPcs,lines}=S.quickSchedule;
+  const dateEl=document.getElementById("qs-date");
+  const hourEl=document.getElementById("qs-hour");
+  if(!dateEl||!dateEl.value){alert("Choisissez une date de début.");return;}
+  const startDate=dateEl.value;
+  const parts=(hourEl?hourEl.value:"08:00").split(":");
+  const startMins=parseInt(parts[0]||"8")*60+parseInt(parts[1]||"0");
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const stdData={};
+  postes.forEach(poste=>{
+    let totalSec=0,totalP=0;
+    toA(lines).filter(Boolean).forEach(line=>{
+      const dim=String(line.dim||"");
+      const pcs=nbPcsFromLine(line);
+      const std=getStdTime(ref,gamme,dim,poste);
+      if(std>0&&pcs>0){totalSec+=pcs*std;totalP+=pcs;}
+    });
+    if(totalP>0&&totalSec>0)stdData[poste]=totalSec/totalP;
+  });
+  S.quickSchedule=null;
+  proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,8,startMins);
+}
+
 function getWeekKey(dateStr){
   const d=new Date(dateStr+"T00:00:00");
   const day=d.getDay();
