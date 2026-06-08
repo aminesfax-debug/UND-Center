@@ -1446,13 +1446,24 @@ function renderClients(){
       </div>
       ${isOpen?`<div style="padding:0 14px 14px;border-top:1px solid var(--border);background:var(--surface2)">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:12px 0;font-size:12px;margin-bottom:10px">
+          ${S.editOrderId===o.id?`
+          <div><span style="color:var(--text2)">N° Cde :</span> <strong>${o.id}</strong></div>
+          <div style="display:flex;flex-direction:column;gap:2px"><label style="color:var(--text2);font-size:11px">Client</label><input id="eoc_client" value="${esc(o.client)}" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)"></div>
+          <div style="display:flex;flex-direction:column;gap:2px"><label style="color:var(--text2);font-size:11px">Délai</label><input id="eoc_deadline" value="${esc(o.deadline||'')}" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)"></div>
+          <div style="display:flex;flex-direction:column;gap:2px"><label style="color:var(--text2);font-size:11px">Représentant</label><input id="eoc_rep" value="${esc(o.rep||'')}" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)"></div>
+          <div style="display:flex;flex-direction:column;gap:2px"><label style="color:var(--text2);font-size:11px">Paiement</label><input id="eoc_payment" value="${esc(o.paymentTerms||'')}" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface)"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button onclick="saveOrderEdit('${o.id}')" class="btn btn-sm btn-primary"><i class="ti ti-check"></i> Enregistrer</button>
+          <button onclick="S.editOrderId=null;render()" class="btn btn-sm"><i class="ti ti-x"></i> Annuler</button>
+        </div>`:`
           <div><span style="color:var(--text2)">N° Cde :</span> <strong>${o.id}</strong></div>
           <div><span style="color:var(--text2)">Client :</span> <strong>${esc(o.client)}</strong></div>
           <div><span style="color:var(--text2)">Délai :</span> <strong>${esc(o.deadline||"—")}</strong></div>
           <div><span style="color:var(--text2)">Représentant :</span> <strong>${esc(o.rep||"—")}</strong></div>
           <div><span style="color:var(--text2)">Paiement :</span> <strong>${esc(o.paymentTerms||"—")}</strong></div>
           ${o.source==="WEB_CLIENT"?`<div><span style="background:var(--blue-bg);color:var(--blue);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">Commande web</span></div>`:""}
-        </div>
+        </div>`}
         <div class="table-scroll">
         <table style="min-width:480px;font-size:12px;background:var(--surface);border-radius:var(--r);overflow:hidden">
           <thead><tr>
