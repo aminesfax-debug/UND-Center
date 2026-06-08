@@ -1821,10 +1821,10 @@ function lancerOFRef(ref){
   // Smart route: quick schedule si standards existent, sinon formulaire complet
   const _postNames=normGammeEntries(postes||[]).map(function(e){return e.poste;}).filter(Boolean);
   const _existStd=S.standards[ref];
-  const _hasAllStds=_postNames.length>0&&_existStd&&_postNames.every(function(p){
-    if(_existStd[gamme]){var ds=Object.keys(_existStd[gamme]);return ds.some(function(d){return parseFloat(((_existStd[gamme][d])||{})[p])>0;});}
-    return parseFloat(_existStd[p])>0;
-  });
+  const _hasAllStds=_postNames.length>0&&_existStd&&(
+    (_existStd[gamme]&&Object.keys(_existStd[gamme]).length>0)||
+    _postNames.some(function(p){return parseFloat(_existStd[p])>0;})
+  );
   if(_hasAllStds){
     S.quickSchedule={pfId,ref,postes:_postNames,gamme,totalPcs,lines:pf.groups[0].lines};
   } else {
@@ -1896,7 +1896,7 @@ function renderStandardsForm(){
     <div style="display:flex;flex-direction:column;gap:10px" id="std-fields">
       ${postes.length===0?`<div style="color:var(--text3);font-style:italic;font-size:13px">Sélectionnez une gamme ci-dessus pour voir les postes.</div>`:
       getGammeOps(ref,gamme).map((opObj,i)=>{
-        const poste=opObj.name||opObj;
+        const poste=opObj.name||opObj.poste||String(opObj);
         const machines=opObj.machines||[];
         const existing=existingStd[poste]||"";
         const dureeSec=existing?(parseFloat(existing)*totalPcs).toFixed(0):"—";
@@ -2000,7 +2000,7 @@ function saveStandards(propose){
   }
 }
 
-function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMins){
+function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMins,ofGamme){
   if(!S.plan||typeof S.plan!=="object")S.plan={};
   const POSTE_MAP={
     "Découpe presse":"press60","Reprise Presse":"press60",
@@ -2021,7 +2021,7 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMin
   let currentMins=typeof startMins==="number"?startMins:8*60;
 
   // Get gamme ops with machine assignments
-  const gamme=S.standardsForm&&S.standardsForm.gamme;
+  const gamme=(S.standardsForm&&S.standardsForm.gamme)||ofGamme||"";
   const gammeOps=ref&&gamme?getGammeOps(ref,gamme):[];
 
   postes.forEach((poste,idx)=>{
@@ -2157,7 +2157,7 @@ function quickScheduleGo(pfId){
     if(totalP>0&&totalSec>0)stdData[poste]=totalSec/totalP;
   });
   S.quickSchedule=null;
-  proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,8,startMins);
+  proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,8,startMins,gamme);
 }
 
 function getWeekKey(dateStr){
