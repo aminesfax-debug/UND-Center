@@ -1790,8 +1790,8 @@ async function scheduleExistingOF(pfId){
   const gamme=g.gamme||"";
   const totalPcs=g.totalPcs||0;
   const lines=g.lines||[];
-  // Si GAMMES pas encore chargé pour ce ref/gamme, on le charge depuis Firebase
-  if(db&&ref&&(!GAMMES[ref]||!GAMMES[ref][gamme])){
+  // Charger les gammes Firebase pour ce ref
+  if(db&&ref){
     await db.ref("config/gammes/"+ref).once("value").then(function(s){
       if(s.val()){
         GAMMES[ref]=GAMMES[ref]||{};
@@ -1806,7 +1806,7 @@ async function scheduleExistingOF(pfId){
   if(!postesArr.length&&g.postes&&g.postes.length){
     postesArr=normGammeEntries(g.postes).map(function(e){return e.poste;}).filter(Boolean);
   }
-  if(!postesArr.length){alert("Gamme introuvable. Configurez-la dans Paramètres → Gammes puis relancez.");return;}
+  // Même si postes vides, on ouvre quickSchedule : l'UI proposera de choisir la gamme
   S.quickSchedule={pfId,ref,postes:postesArr,gamme,totalPcs,lines};
   render();
 }
@@ -2130,6 +2130,27 @@ function renderQuickSchedule(){
     const wsName=machines.length?machines.map(m=>{const w=getWS().find(x=>x.id===m);return w?w.name:m;}).join(", "):"—";
     return{poste,totalSec,totalMin,nSlots,wsName};
   });
+  // Si aucun poste connu → proposer de choisir la gamme manuellement
+  if(!postes.length){
+    const availGammes=GAMMES[ref]?Object.keys(GAMMES[ref]):[];
+    if(!availGammes.length){
+      return`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <button class="btn btn-sm" onclick="S.quickSchedule=null;render()"><i class="ti ti-arrow-left"></i>Retour</button>
+        <span style="font-weight:700">Planification — ${pfId}</span>
+      </div>
+      <div class="card"><div style="padding:12px;color:var(--text2)">Aucune gamme configurée pour ${ref}. Allez dans <strong>Paramètres → Gammes</strong>.</div></div>`;
+    }
+    return`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button class="btn btn-sm" onclick="S.quickSchedule=null;render()"><i class="ti ti-arrow-left"></i>Retour</button>
+      <span style="font-weight:700;font-size:15px">Planification — ${pfId}</span>
+    </div>
+    <div class="card">
+      <div class="card-title"><i class="ti ti-sitemap"></i>Choisir la gamme opératoire</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        ${availGammes.map(gm=>`<button class="btn btn-primary" onclick="selectQuickGamme('${gm}')" style="font-size:13px">${gm}</button>`).join("")}
+      </div>
+    </div>`;
+  }
   const anyMissing=opDurs.some(o=>o.totalSec===0);
   return`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
     <button class="btn btn-sm" onclick="S.quickSchedule=null;render()"><i class="ti ti-arrow-left"></i>Retour</button>
@@ -2163,6 +2184,16 @@ function renderQuickSchedule(){
   <div style="display:flex;justify-content:flex-end">
     <button class="btn btn-primary" onclick="quickScheduleGo('${pfId}')"><i class="ti ti-calendar-plus"></i>Planifier les opérations</button>
   </div>`;
+}
+
+function selectQuickGamme(gamme){
+  if(!S.quickSchedule)return;
+  const ref=S.quickSchedule.ref;
+  const postesArr=GAMMES[ref]&&GAMMES[ref][gamme]
+    ?normGammeEntries(GAMMES[ref][gamme]).map(function(e){return e.poste;}).filter(Boolean)
+    :[];
+  S.quickSchedule={...S.quickSchedule,gamme,postes:postesArr};
+  render();
 }
 
 function quickScheduleGo(pfId){
