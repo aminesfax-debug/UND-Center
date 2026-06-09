@@ -4102,13 +4102,15 @@ function getDeclOperations(){
   if(!S.declForm||!S.declForm.ofId)return[];
   const of=S.ofs.find(o=>o.id===S.declForm.ofId);
   if(!of)return[];
-  // Get postes from OF groups
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
   const postes=new Set();
-  (of.groups||[]).forEach(g=>normGammeEntries(g.postes||[]).forEach(e=>{if(e.poste)postes.add(e.poste);}));
+  // of.groups peut être un objet Firebase {0:{...},1:{...}} ou un tableau
+  toA(of.groups).forEach(g=>normGammeEntries(g.postes||[]).forEach(e=>{if(e.poste)postes.add(e.poste);}));
   if(!postes.size){
-    // fallback: get from GAMMES
-    const ref=of.ref||(of.groups&&of.groups[0]&&of.groups[0].ref);
-    const gamme=of.gamme||(of.groups&&of.groups[0]&&of.groups[0].gamme);
+    // fallback: charger depuis GAMMES en mémoire
+    const groups=toA(of.groups);
+    const ref=of.ref||(groups[0]&&groups[0].ref);
+    const gamme=of.gamme||(groups[0]&&groups[0].gamme);
     if(ref&&gamme&&GAMMES[ref]&&GAMMES[ref][gamme]){
       normGammeEntries(GAMMES[ref][gamme]).forEach(e=>{if(e.poste)postes.add(e.poste);});
     }
@@ -4132,14 +4134,14 @@ function getDeclRefs(){
 function saveDecl(){
   if(!S.declForm)return;
   const f=S.declForm;
-  if(!f.wsId||!f.ofId||!f.operator||!f.operation){
-    alert("Veuillez remplir : poste, OF, opérateur et opération.");return;
+  if(!f.ofId||!f.operator||!f.operation){
+    alert("Veuillez remplir : OF, opérateur et opération.");return;
   }
   const validLines=f.lines.filter(l=>l.ref&&(l.qtyOK>0||l.qtyNC>0));
   if(!validLines.length){alert("Veuillez saisir au moins une ligne avec une quantité.");return;}
   const id="DEC-"+Date.now();
   const decl={
-    id,date:f.date,wsId:f.wsId,ofId:f.ofId,
+    id,date:f.date,ofId:f.ofId,
     operator:f.operator,operation:f.operation,
     lines:validLines,notes:f.notes||"",
     createdAt:new Date().toISOString(),
@@ -4181,13 +4183,6 @@ function renderDeclarations(){
         <div class="form-group">
           <label>Date</label>
           <input type="date" value="${form.date}" onchange="S.declForm.date=this.value">
-        </div>
-        <div class="form-group">
-          <label>Poste de travail *</label>
-          <select onchange="S.declForm.wsId=this.value">
-            <option value="">— Choisir —</option>
-            ${ws.map(w=>`<option value="${w.id}"${form.wsId===w.id?" selected":""}>${esc(w.name)}</option>`).join("")}
-          </select>
         </div>
         <div class="form-group">
           <label>Ordre de fabrication *</label>
