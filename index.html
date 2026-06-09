@@ -2090,13 +2090,17 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMin
     const timeStr=minsToTime(currentMins);
     const timeKey=minsToKey(currentMins);
 
-    // Fill planning slots
-    const baseMins=parseInt(timeKey.slice(0,2))*60+parseInt(timeKey.slice(2));
-    for(let i=0;i<nbDays*Math.ceil(hpjN*2);i++){
-      const t=baseMins+i*30;
-      if(t>=baseMins+Math.ceil(totalSec/1800)*30)break;
-      const k=planKey(wsId,dateStr,baseMins+i*30);
-      if(!S.plan[k])S.plan[k]={ofId:pfId,notes:poste,duration:i===0?Math.ceil(totalSec/1800):0,proposed:true};
+    // Fill planning slots – multi-day aware
+    const nSlots=Math.ceil(totalSec/1800);
+    let slotDate=dateStr;
+    let slotMins=parseInt(timeKey.slice(0,2))*60+parseInt(timeKey.slice(2));
+    for(let i=0;i<nSlots;i++){
+      const _sdSat=new Date(slotDate+"T00:00:00").getDay()===6;
+      const _sdEnd=_sdSat?18*60:23*60;
+      while(slotMins>=_sdEnd){slotDate=addWorkingDays(slotDate,1);slotMins=8*60;}
+      const k=planKey(wsId,slotDate,slotMins);
+      if(!S.plan[k])S.plan[k]={ofId:pfId,notes:poste,duration:i===0?nSlots:0,proposed:true};
+      slotMins+=30;
     }
 
     slots.push({poste,wsId,machines:assignedMachines||[wsId],
@@ -2656,7 +2660,8 @@ function renderPlanning(){
   const totalCols=dayData.reduce((s,d)=>s+d.slots.length,0);
   if(!totalCols)return h+`<div class="card"><div class="empty"><p>Aucun créneau disponible.</p></div></div>`;
 
-  h+=`<div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:${130+totalCols*36}px;font-size:11px">
+  const tableW=Math.max(800,130+totalCols*36);
+  h+=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="border-collapse:collapse;width:${tableW}px;min-width:${tableW}px;font-size:11px">
     <thead>
       <tr>
         <th rowspan="2" style="position:sticky;left:0;background:var(--surface2);z-index:4;min-width:120px;padding:8px 10px;text-align:left;border:1px solid var(--border)">Poste</th>
