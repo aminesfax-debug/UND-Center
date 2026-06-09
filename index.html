@@ -2562,111 +2562,139 @@ function renderPlanning(){
   const ws=getWS();
   if(S.planProposal)return renderPlanProposal();
   if(!S.planDate)S.planDate=todayStr();
-  const selDate=S.planDate;
-  const date=new Date(selDate+"T00:00:00");
-  const dow=date.getDay();
-  const dayNames=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
-  const monthNames=["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"];
-  const isSun=dow===0;
-  const isSat=dow===6;
-  const dayLabel=dayNames[dow]+" "+date.getDate()+" "+monthNames[date.getMonth()]+" "+date.getFullYear();
 
-  // Navigation header
+  const NDAYS=3;
+  const days=[];
+  for(let i=0;i<NDAYS;i++)days.push(addWorkingDays(S.planDate,i));
+
+  const DAY_NAMES=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];
+  const MON_NAMES=["jan","fév","mar","avr","mai","jun","jul","aoû","sep","oct","nov","déc"];
+  function dlabel(ds){const d=new Date(ds+"T00:00:00");return DAY_NAMES[d.getDay()]+" "+d.getDate()+"/"+String(d.getMonth()+1).padStart(2,"0");}
+
+  // ── Header navigation ──────────────────────────────────────
   let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-    <button onclick="S.planDate=addWorkingDays('${selDate}',-1);render()" class="btn btn-sm"><i class="ti ti-chevron-left"></i></button>
-    <input type="date" value="${selDate}" onchange="S.planDate=this.value;render()" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);background:#FFF">
-    <button onclick="S.planDate=addWorkingDays('${selDate}',1);render()" class="btn btn-sm"><i class="ti ti-chevron-right"></i></button>
-    <span style="font-weight:700;font-size:14px;color:${isSun?"var(--red)":"var(--text)"}">${dayLabel}${isSun?" — Fermé":""}</span>
+    <button onclick="S.planDate=addWorkingDays('${S.planDate}',-1);render()" class="btn btn-sm"><i class="ti ti-chevron-left"></i></button>
+    <input type="date" value="${S.planDate}" onchange="S.planDate=this.value;render()" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r);background:#FFF">
+    <button onclick="S.planDate=addWorkingDays('${S.planDate}',1);render()" class="btn btn-sm"><i class="ti ti-chevron-right"></i></button>
+    <span style="font-weight:600;font-size:13px">${dlabel(days[0])} → ${dlabel(days[NDAYS-1])}</span>
     <div style="margin-left:auto;display:flex;gap:6px">
       ${["all","shift1","shift2"].map(s=>`<button onclick="S.planShift='${s}';render()" style="padding:5px 12px;border-radius:var(--r);border:1px solid ${S.planShift===s?"#17171A":"var(--border)"};background:${S.planShift===s?"#17171A":"#FFF"};color:${S.planShift===s?"#FFF":"var(--text2)"};font-size:12px;font-weight:600;cursor:pointer">${s==="all"?"Les 2 postes":s==="shift1"?"Poste 1":"Poste 2"}</button>`).join("")}
     </div>
   </div>`;
 
-  if(isSun){
-    return h+`<div class="card"><div class="empty"><i class="ti ti-moon"></i><p>Dimanche — Atelier fermé</p></div></div>`;
-  }
-
-  const slots=getDaySlots(selDate,S.planShift);
-  if(!slots.length){
-    return h+`<div class="card"><div class="empty"><p>Aucun créneau pour ce filtre.</p></div></div>`;
-  }
-
-  // Legend
-  const shift1End=isSat?"13h":"15h";
-  const shift2End=isSat?"18h":"23h";
-  h+=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:11px">
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:14px;background:${SHIFT1_COLOR};border:1px solid #CCC;border-radius:3px;display:inline-block"></span>Poste 1 — 8h à ${shift1End}</span>
-    <span style="display:flex;align-items:center;gap:5px"><span style="width:14px;height:14px;background:${SHIFT2_COLOR};border:1px solid #CCC;border-radius:3px;display:inline-block"></span>Poste 2 — ${shift1End} à ${shift2End}</span>
-    <span style="color:var(--text3)">Cliquez sur un créneau pour affecter ou modifier un OF</span>
-  </div>`;
-
-  // Modal if a slot is selected
+  // ── Modal tâche (point 5) ──────────────────────────────────
   if(S.planClickKey){
     const parts=S.planClickKey.split("_");
-    const clickWs=parts[0];const clickDate=parts[1];const clickTime=parts[2];
+    const clickWs=parts[0],clickDate=parts[1],clickTime=parts[2];
     const existing=S.plan[S.planClickKey];
     const wsName=(ws.find(w=>w.id===clickWs)||{name:clickWs}).name;
-    const activeOfs=S.ofs.filter(o=>o.status==="LANCÉ"||o.status==="EN_COURS"||!o.status);
     const hhmm=clickTime.slice(0,2)+":"+clickTime.slice(2);
-    h+=`<div style="background:#FFF;border:2px solid var(--teal);border-radius:var(--rl);padding:16px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <strong style="font-size:13px"><i class="ti ti-pencil"></i> ${wsName} — ${hhmm}</strong>
-        <button onclick="S.planClickKey=null;render()" class="btn btn-sm"><i class="ti ti-x"></i></button>
-      </div>
-      <div class="form-grid" style="margin-bottom:10px">
-        <div class="form-group">
-          <label>OF</label>
-          <select id="plan-of-sel">
-            <option value="">— Vide —</option>
-            ${activeOfs.map(o=>`<option value="${o.id}"${existing&&existing.ofId===o.id?" selected":""}>${o.id}${o.ref?" — "+o.ref:""}</option>`).join("")}
-          </select>
+    const activeOfs=S.ofs.filter(o=>o.status==="LANCÉ"||o.status==="EN_COURS"||!o.status);
+
+    if(existing){
+      // Tâche existante → afficher détails + modifier
+      const dur=existing.duration>0?existing.duration:1;
+      const endMins=parseInt(clickTime.slice(0,2))*60+parseInt(clickTime.slice(2))+dur*30;
+      h+=`<div style="background:#FFF;border:2px solid var(--teal);border-radius:var(--rl);padding:16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <strong style="font-size:14px"><i class="ti ti-tool" style="margin-right:4px"></i>${existing.ofId}${existing.notes?" — "+esc(existing.notes):""}</strong>
+          <button onclick="S.planClickKey=null;render()" class="btn btn-sm"><i class="ti ti-x"></i></button>
         </div>
-        <div class="form-group">
-          <label>Opération</label>
-          <input type="text" id="plan-op-inp" value="${existing?esc(existing.notes||""):""}">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">
+          <span><i class="ti ti-server"></i> ${wsName}</span>
+          <span><i class="ti ti-clock"></i> ${hhmm} → ${minsToTime(endMins)}</span>
+          <span><i class="ti ti-calendar"></i> ${dlabel(clickDate)}</span>
         </div>
-      </div>
-      <div class="form-group" style="margin-bottom:10px">
-        <label>Durée (nombre de créneaux de 30mn)</label>
-        <input type="number" id="plan-dur" value="${existing?existing.duration||1:1}" min="1" max="16">
-      </div>
-      <div style="display:flex;gap:8px">
-        ${existing?`<button onclick="planClearSlot()" class="btn" style="color:var(--red)"><i class="ti ti-trash"></i>Vider</button>`:""}
-        <button onclick="planSaveSlot()" class="btn btn-teal" style="margin-left:auto"><i class="ti ti-check"></i>Enregistrer</button>
-      </div>
-    </div>`;
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="form-group">
+            <label>Durée (créneaux × 30 min)</label>
+            <input type="number" id="plan-dur" value="${dur}" min="1" max="32">
+          </div>
+          <div class="form-group">
+            <label>Déplacer vers machine</label>
+            <select id="plan-ws-sel">${ws.map(w=>`<option value="${w.id}"${w.id===clickWs?" selected":""}>${esc(w.name)}</option>`).join("")}</select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="planClearSlot()" class="btn" style="color:var(--red)"><i class="ti ti-trash"></i>Supprimer</button>
+          <button onclick="planSaveSlot()" class="btn btn-teal" style="margin-left:auto"><i class="ti ti-check"></i>Enregistrer</button>
+        </div>
+      </div>`;
+    } else {
+      // Créneau vide → affecter un OF
+      h+=`<div style="background:#FFF;border:2px solid var(--teal);border-radius:var(--rl);padding:16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <strong style="font-size:13px"><i class="ti ti-pencil" style="margin-right:4px"></i>${wsName} — ${hhmm}</strong>
+          <button onclick="S.planClickKey=null;render()" class="btn btn-sm"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="form-group"><label>OF</label>
+            <select id="plan-of-sel"><option value="">— Vide —</option>
+              ${activeOfs.map(o=>`<option value="${o.id}">${o.id}${o.ref?" — "+o.ref:""}</option>`).join("")}
+            </select>
+          </div>
+          <div class="form-group"><label>Opération</label><input type="text" id="plan-op-inp" value=""></div>
+        </div>
+        <div class="form-group" style="margin-bottom:10px">
+          <label>Durée (créneaux de 30 min)</label>
+          <input type="number" id="plan-dur" value="1" min="1" max="32">
+        </div>
+        <div style="display:flex;justify-content:flex-end">
+          <button onclick="planSaveSlot()" class="btn btn-teal"><i class="ti ti-check"></i>Affecter</button>
+        </div>
+      </div>`;
+    }
   }
 
-  // Grid
-  h+=`<div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:${200+slots.length*56}px;font-size:11px">
-    <thead><tr>
-      <th style="position:sticky;left:0;background:var(--surface2);z-index:3;min-width:140px;padding:8px 10px;text-align:left;border:1px solid var(--border)">Poste</th>
-      ${slots.map(s=>`<th style="min-width:52px;padding:5px 2px;text-align:center;background:${s.shift===1?SHIFT1_COLOR:SHIFT2_COLOR};border:1px solid var(--border);font-weight:${s.t%60===0?"700":"400"};color:${s.shift===1?"#0F6E56":"#534AB7"}">
-        ${minsToTime(s.t)}
-      </th>`).join("")}
-    </tr></thead>
+  // ── Grille 3 jours ─────────────────────────────────────────
+  const dayData=days.map(date=>{
+    const dow=new Date(date+"T00:00:00").getDay();
+    if(dow===0)return{date,slots:[],isSun:true,isSat:false};
+    return{date,slots:getDaySlots(date,S.planShift),isSun:false,isSat:dow===6};
+  });
+
+  const totalCols=dayData.reduce((s,d)=>s+d.slots.length,0);
+  if(!totalCols)return h+`<div class="card"><div class="empty"><p>Aucun créneau disponible.</p></div></div>`;
+
+  h+=`<div style="overflow-x:auto"><table style="border-collapse:collapse;min-width:${130+totalCols*36}px;font-size:11px">
+    <thead>
+      <tr>
+        <th rowspan="2" style="position:sticky;left:0;background:var(--surface2);z-index:4;min-width:120px;padding:8px 10px;text-align:left;border:1px solid var(--border)">Poste</th>
+        ${dayData.map(d=>d.slots.length
+          ?`<th colspan="${d.slots.length}" style="padding:5px 8px;text-align:center;background:${d.isSat?"#FFF8F0":"var(--surface2)"};border:1px solid var(--border);font-weight:700;font-size:12px;border-left:2px solid #999">${dlabel(d.date)}</th>`
+          :d.isSun?`<th style="padding:5px;background:#FFF0F0;border:1px solid var(--border);font-size:11px;color:var(--red);border-left:2px solid #999">Dim</th>`:""
+        ).join("")}
+      </tr>
+      <tr>
+        ${dayData.flatMap(d=>d.isSun
+          ?[`<td style="border:1px solid var(--border);border-left:2px solid #999;background:#FFF0F0"></td>`]
+          :d.slots.map((s,si)=>`<th style="min-width:32px;padding:3px 1px;text-align:center;background:${s.shift===1?SHIFT1_COLOR:SHIFT2_COLOR};border:1px solid var(--border);${si===0?"border-left:2px solid #999":""};font-weight:${s.t%60===0?"700":"400"};color:${s.shift===1?"#0F6E56":"#534AB7"};font-size:9px">${minsToTime(s.t)}</th>`)
+        ).join("")}
+      </tr>
+    </thead>
     <tbody>
       ${ws.map(w=>`<tr>
-        <td style="position:sticky;left:0;background:var(--surface2);z-index:2;padding:7px 10px;border:1px solid var(--border);font-weight:600;white-space:nowrap">${esc(w.name)}</td>
-        ${slots.map(s=>{
-          const key=planKey(w.id,selDate,s.t);
-          const cell=S.plan[key];
-          const isSel=S.planClickKey===key;
-          const bg=isSel?"var(--teal-bg)":cell?planColorForOf(cell.ofId):(s.shift===1?SHIFT1_COLOR:SHIFT2_COLOR);
-          return`<td onclick="planCellClick('${key}')" style="padding:3px 2px;border:1px solid ${isSel?"var(--teal)":"var(--border)"};background:${bg};cursor:pointer;text-align:center;min-width:52px;vertical-align:middle">
-            ${cell?`<div style="font-size:10px;font-weight:700;line-height:1.2;color:#333">${cell.ofId}</div>`:""}
-          </td>`;
-        }).join("")}
+        <td style="position:sticky;left:0;background:var(--surface2);z-index:2;padding:6px 10px;border:1px solid var(--border);font-weight:600;white-space:nowrap">${esc(w.name)}</td>
+        ${dayData.flatMap((d,di)=>d.isSun
+          ?[`<td style="border:1px solid var(--border);border-left:2px solid #999;background:#FFF5F5"></td>`]
+          :d.slots.map((s,si)=>{
+            const key=planKey(w.id,d.date,s.t);
+            const cell=S.plan[key];
+            const isSel=S.planClickKey===key;
+            const isFirst=cell&&cell.duration>0;
+            const bg=isSel?"var(--teal-bg)":cell?planColorForOf(cell.ofId):(s.shift===1?SHIFT1_COLOR:SHIFT2_COLOR);
+            return`<td onclick="planCellClick('${key}')" style="padding:1px;border:1px solid ${isSel?"var(--teal)":"var(--border)"};${si===0?"border-left:2px solid #999":""};background:${bg};cursor:pointer;text-align:center;min-width:32px;height:30px;vertical-align:middle">
+              ${isFirst?`<div style="font-size:9px;font-weight:700;color:#333;line-height:1.2">${cell.ofId}</div><div style="font-size:8px;color:#555">${cell.notes?esc(cell.notes.slice(0,6)):""}</div>`:""}
+            </td>`;
+          })
+        ).join("")}
       </tr>`).join("")}
     </tbody>
-  </table></div>
-
-  <div style="margin-top:10px;font-size:11px;color:var(--text3)">
-    Plan entries aujourd'hui : ${Object.keys(S.plan||{}).filter(k=>k.includes("_"+selDate+"_")).length}
-  </div>`;
+  </table></div>`;
 
   return h;
 }
+
 
 function planCellClick(key){
   S.planClickKey=S.planClickKey===key?null:key;
@@ -2675,50 +2703,75 @@ function planCellClick(key){
 
 function planSaveSlot(){
   const key=S.planClickKey;if(!key)return;
-  const ofId=document.getElementById("plan-of-sel")?.value||"";
-  const notes=document.getElementById("plan-op-inp")?.value||"";
-  const duration=parseInt(document.getElementById("plan-dur")?.value)||1;
-  
-  if(!ofId){planClearSlot();return;}
-  
-  // Parse key to fill multiple slots for duration
   const parts=key.split("_");
-  const wsId=parts[0];const dateStr=parts[1];const timeStr=parts[2];
+  const origWs=parts[0],dateStr=parts[1],timeStr=parts[2];
+  const existing=S.plan[key];
+
+  const ofIdEl=document.getElementById("plan-of-sel");
+  const notesEl=document.getElementById("plan-op-inp");
+  const durEl=document.getElementById("plan-dur");
+  const wsSelEl=document.getElementById("plan-ws-sel");
+
+  const ofId=ofIdEl?ofIdEl.value:(existing?existing.ofId:"");
+  const notes=notesEl?notesEl.value:(existing?existing.notes:"");
+  const duration=parseInt(durEl?durEl.value:1)||1;
+  const newWs=wsSelEl?wsSelEl.value:origWs;
+
+  if(!ofId){planClearSlot();return;}
+
   const baseMins=parseInt(timeStr.slice(0,2))*60+parseInt(timeStr.slice(2));
-  
-  for(let i=0;i<duration;i++){
-    const t=baseMins+i*30;
-    const k=planKey(wsId,dateStr,t);
-    S.plan[k]={ofId,notes,duration:i===0?duration:0,proposed:false};
+
+  // Supprimer anciens créneaux si machine changée ou durée réduite
+  if(existing){
+    const oldDur=existing.duration>0?existing.duration:1;
+    const del={};
+    for(let i=0;i<oldDur;i++){del[planKey(origWs,dateStr,baseMins+i*30)]=null;}
+    Object.keys(del).forEach(k=>{delete S.plan[k];});
+    if(db)db.ref("plan").update(del);
   }
-  if(db)db.ref("plan").update(
-    Object.fromEntries(
-      Array.from({length:duration},(_,i)=>{
-        const t=baseMins+i*30;
-        const k=planKey(wsId,dateStr,t);
-        return[k,{ofId,notes,duration:i===0?duration:0}];
-      })
-    )
-  );
+
+  // Écrire nouveaux créneaux (machine peut avoir changé)
+  const upd={};
+  for(let i=0;i<duration;i++){
+    const k=planKey(newWs,dateStr,baseMins+i*30);
+    const v={ofId,notes,duration:i===0?duration:0,proposed:false};
+    S.plan[k]=v;upd[k]=v;
+  }
+  if(db)db.ref("plan").update(upd);
   S.planClickKey=null;
   render();
 }
 
+
 function planClearSlot(){
   const key=S.planClickKey;if(!key)return;
-  const cell=S.plan[key];
-  const dur=cell&&cell.duration>1?cell.duration:1;
   const parts=key.split("_");
-  const wsId=parts[0];const dateStr=parts[1];const timeStr=parts[2];
-  const baseMins=parseInt(timeStr.slice(0,2))*60+parseInt(timeStr.slice(2));
-  const delKeys={};
-  for(let i=0;i<dur;i++){
-    const t=baseMins+i*30;
-    const k=planKey(wsId,dateStr,t);
-    delete S.plan[k];
-    delKeys[k]=null;
+  const wsId=parts[0],dateStr=parts[1],timeStr=parts[2];
+  let cell=S.plan[key];
+  if(!cell){S.planClickKey=null;render();return;}
+
+  // Si on a cliqué sur un créneau de continuation (duration=0), remonter au premier
+  let firstKey=key;
+  if(!(cell.duration>0)){
+    let mins=parseInt(timeStr.slice(0,2))*60+parseInt(timeStr.slice(2));
+    for(let tries=0;tries<32;tries++){
+      mins-=30;if(mins<0)break;
+      const k=planKey(wsId,dateStr,mins);
+      const c=S.plan[k];
+      if(!c||c.ofId!==cell.ofId)break;
+      if(c.duration>0){firstKey=k;cell=c;break;}
+    }
   }
-  if(db)db.ref("plan").update(delKeys);
+
+  const dur=cell.duration>0?cell.duration:1;
+  const fp=firstKey.split("_");
+  const baseMins=parseInt(fp[2].slice(0,2))*60+parseInt(fp[2].slice(2));
+  const del={};
+  for(let i=0;i<dur;i++){
+    const k=planKey(wsId,dateStr,baseMins+i*30);
+    delete S.plan[k];del[k]=null;
+  }
+  if(db)db.ref("plan").update(del);
   S.planClickKey=null;
   render();
 }
