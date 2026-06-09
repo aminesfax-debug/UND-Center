@@ -576,6 +576,30 @@ function ls_set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 function updateOLine(oid,lid,field,val){const o=S.orders.find(x=>x.id===oid);if(!o)return;const l=(o.lines||[]).find(x=>x.id==lid);if(!l)return;l[field]=field==='remise'||field==='prixTarif'?parseFloat(val)||0:val;saveOrders();render();}
 function deleteOLine(oid,lid){const o=S.orders.find(x=>x.id===oid);if(!o)return;o.lines=(o.lines||[]).filter(x=>x.id!=lid);saveOrders();render();}
 function deleteOrder(id){if(!confirm('Supprimer '+id+' ?'))return;S.orders=S.orders.filter(x=>x.id!==id);saveOrders();render();}
+
+function setQtyLivree(oid,lineIdx,val){
+  const o=S.orders.find(x=>x.id===oid);if(!o)return;
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const lines=toA(o.lines);
+  if(!lines[lineIdx])return;
+  lines[lineIdx].qtyLivree=parseFloat(val)||0;
+  o.lines=lines;
+  saveOrders();render();
+}
+
+function apurerComplet(oid){
+  const o=S.orders.find(x=>x.id===oid);if(!o)return;
+  const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
+  const lines=toA(o.lines);
+  lines.forEach(l=>{
+    if(!l||!l.ref||!l.qty)return;
+    const nb=parseFloat(l.nbPcs||0)||(l.ref.startsWith("F-")?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25);
+    l.qtyLivree=nb;
+  });
+  o.lines=lines;
+  o.status="APURÉ";
+  saveOrders();render();
+}
 function startEditOrder(id){S.editOrderId=id;S.expandedOrder=id;render();}
 function saveOrderEdit(id){const o=S.orders.find(x=>x.id===id);if(!o)return;const g=k=>{const el=document.getElementById(k);return el?el.value.trim():null;};const cl=g('eoc_client'),dl=g('eoc_deadline'),rp=g('eoc_rep'),pm=g('eoc_payment');if(cl!==null)o.client=cl;if(dl!==null)o.deadline=dl;if(rp!==null)o.rep=rp;if(pm!==null)o.paymentTerms=pm;S.editOrderId=null;saveOrders();render();}
 function saveOrders(){
@@ -1507,6 +1531,34 @@ function renderClients(){
             <tr style="background:#17171A;color:#FFF"><td colspan="5" style="padding:8px 10px;font-weight:700">TOTAL GÉNÉRAL HT</td><td colspan="4" style="text-align:right;font-weight:700;font-size:14px;padding:8px 10px">${totalHT>0?totalHT.toFixed(3)+" TND":"—"}</td></tr>
           </tfoot>
         </table></div>
+        <div style="margin-top:14px;border-top:2px solid var(--border);padding-top:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px"><i class="ti ti-truck-delivery" style="margin-right:5px"></i>Apurement — Livraisons</span>
+            <button onclick="event.stopPropagation();apurerComplet('${o.id}')" style="font-size:11px;padding:4px 10px;border-radius:var(--r);border:1px solid var(--teal);background:var(--teal-bg);color:var(--teal);cursor:pointer;font-weight:600"><i class="ti ti-check-all"></i> Solder tout</button>
+          </div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr style="background:var(--surface2)">
+              <th style="padding:6px 8px;text-align:left;font-weight:600;color:var(--text2)">Article</th>
+              <th style="padding:6px 8px;text-align:right;font-weight:600;color:var(--text2)">Cde (pcs)</th>
+              <th style="padding:6px 8px;text-align:right;font-weight:600;color:var(--text2)">Livré (pcs)</th>
+              <th style="padding:6px 8px;text-align:center;font-weight:600;color:var(--text2)">Statut</th>
+            </tr></thead>
+            <tbody>
+            ${activeLines.map((l,li)=>{
+              const nb=parseFloat(l.nbPcs||0)||(l.ref.startsWith("F-")?parseFloat(l.qty)||0:(parseFloat(l.qty)||0)*25);
+              const livree=parseFloat(l.qtyLivree)||0;
+              const pct=nb>0?livree/nb:0;
+              const st=livree<=0?{txt:"En cours",c:"var(--text3)",bg:"var(--surface2)"}:pct>=1?{txt:"Soldé",c:"var(--teal)",bg:"var(--teal-bg)"}:{txt:"Partiel",c:"#B45309",bg:"#FEF3C7"};
+              return`<tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:6px 8px;font-weight:500">${esc(l.designation||l.ref)}</td>
+                <td style="padding:6px 8px;text-align:right">${nb.toLocaleString("fr-FR")}</td>
+                <td style="padding:6px 8px;text-align:right"><input type="number" value="${livree||""}" min="0" placeholder="0" onclick="event.stopPropagation()" onchange="setQtyLivree('${o.id}',${li},this.value)" style="width:70px;font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;background:var(--surface)"></td>
+                <td style="padding:6px 8px;text-align:center"><span style="background:${st.bg};color:${st.c};padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">${st.txt}</span></td>
+              </tr>`;
+            }).join("")}
+            </tbody>
+          </table>
+        </div>
       </div>`:""}
     </div>`;
   }).join("");
