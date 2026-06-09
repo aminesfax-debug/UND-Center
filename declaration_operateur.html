@@ -87,7 +87,6 @@ input[type=number]{font-size:17px;font-weight:700}
         <label class="fl">Opération *</label>
         <select id="f-op" onchange=""><option value="">— Choisir d'abord un OF —</option></select>
       </div>
-      <div id="debug-out" style="display:none;grid-column:1/-1;font-size:11px;font-family:monospace;background:#f0f0f0;padding:10px;border-radius:var(--r);white-space:pre-wrap;word-break:break-all"></div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="fl">Opérateur *</label>
         <input type="text" id="f-operator" placeholder="Votre nom" autocomplete="name">
@@ -206,9 +205,6 @@ async function onOfChange(){
   if(!of){sel.innerHTML='<option value="">— Choisir d\'abord un OF —</option>';return;}
   sel.innerHTML='<option value="">— Chargement… —</option>';
 
-  // DEBUG temporaire
-  const dbg=document.getElementById("debug-out");
-
   // 1) Essayer depuis les groupes de l'OF
   const postes=new Set();
   const groups=toA(of.groups);
@@ -223,24 +219,13 @@ async function onOfChange(){
       try{
         const snap=await db.ref("config/gammes/"+ref).once("value");
         const data=snap.val();
-        if(dbg) dbg.textContent+=" | FB gammes="+JSON.stringify(data).slice(0,300);
         if(data){
-          // Prendre toutes les gammes disponibles
           Object.values(data).forEach(gamme=>{
             toA(gamme).forEach(p=>{const n=normPoste(p);if(n)postes.add(n);});
           });
         }
-      }catch(e){if(dbg)dbg.textContent+=" | FB err="+e.message;}
+      }catch(e){}
     }
-  }
-
-  if(dbg){
-    const g0=groups[0]||{};
-    dbg.style.display="block";
-    dbg.textContent="ref="+of.ref+" gamme="+of.gamme+
-      "\ng0.ref="+g0.ref+" g0.gamme="+g0.gamme+
-      "\ng0.postes="+JSON.stringify(toA(g0.postes)).slice(0,150)+
-      "\npostes trouvés: "+[...postes].join(", ")+dbg.textContent;
   }
 
   sel.innerHTML='<option value="">— Choisir —</option>'+
