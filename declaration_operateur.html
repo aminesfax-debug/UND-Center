@@ -198,21 +198,36 @@ function normPoste(e){
 }
 
 // ── OF CHANGE ──
-function onOfChange(){
+async function onOfChange(){
   const ofId=document.getElementById("f-of").value;
   const of=OFS.find(o=>o.id===ofId);
   const sel=document.getElementById("f-op");
   if(!of){sel.innerHTML='<option value="">— Choisir d\'abord un OF —</option>';return;}
-  
-  // Get operations from OF groups — groups peut être un objet Firebase {0:{...},1:{...}}
+  sel.innerHTML='<option value="">— Chargement… —</option>';
+
+  // 1) Essayer depuis les groupes de l'OF
   const postes=new Set();
   toA(of.groups).forEach(g=>{
     toA(g.postes).forEach(p=>{const n=normPoste(p);if(n)postes.add(n);});
   });
-  
+
+  // 2) Fallback Firebase si postes vides (OF créé avant les gammes)
+  if(!postes.size){
+    const groups=toA(of.groups);
+    const ref=of.ref||(groups[0]&&groups[0].ref);
+    const gamme=of.gamme||(groups[0]&&groups[0].gamme);
+    if(ref&&gamme){
+      try{
+        const snap=await db.ref("config/gammes/"+ref+"/"+gamme).once("value");
+        if(snap.val()) toA(snap.val()).forEach(p=>{const n=normPoste(p);if(n)postes.add(n);});
+      }catch(e){}
+    }
+  }
+
   sel.innerHTML='<option value="">— Choisir —</option>'+
     [...postes].map(p=>`<option value="${p}">${p}</option>`).join("");
-  
+  if(!postes.size) sel.innerHTML='<option value="">Aucune opération trouvée</option>';
+
   // Auto-fill lines from OF refs
   const refs=new Set();
   toA(of.groups).forEach(g=>{
