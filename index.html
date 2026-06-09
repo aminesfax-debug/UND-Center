@@ -1829,7 +1829,7 @@ function toggleAllOFRef(ref){
   S.ofSelByRef[ref]=allSelected?new Set():new Set(allIds);
   render();
 }
-function lancerOFRef(ref){
+async function lancerOFRef(ref){
   const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
   const sel=S.ofSelByRef&&S.ofSelByRef[ref]?S.ofSelByRef[ref]:new Set();
   if(!sel.size){alert("Aucune commande sélectionnée.");return;}
@@ -1850,6 +1850,12 @@ function lancerOFRef(ref){
   if(S.ofSelByRef)delete S.ofSelByRef[ref];
   // Smart route: quick schedule si standards existent, sinon formulaire complet
   const _postNames=normGammeEntries(postes||[]).map(function(e){return e.poste;}).filter(Boolean);
+  // Recharger les standards depuis Firebase si absent en mémoire (race condition async)
+  if(db&&ref&&!S.standards[ref]){
+    await db.ref("standards/"+ref).once("value").then(function(s){
+      if(s.val())S.standards[ref]=s.val();
+    }).catch(function(){});
+  }
   const _existStd=S.standards[ref];
   const _hasAllStds=_postNames.length>0&&_existStd&&(
     (_existStd[gamme]&&Object.keys(_existStd[gamme]).length>0)||
@@ -2007,8 +2013,14 @@ function saveStandards(propose){
     const v=parseFloat(el?el.value:0)||0;
     if(v>0)stdData[poste]=v;
   });
-  S.standards[ref]=stdData;
-  if(db)db.ref("standards/"+ref).set(stdData);
+  if(!Object.keys(stdData).length){
+    // Aucun temps saisi : ne pas écraser les standards existants
+  } else {
+    // Merge avec les standards existants (pas d'écrasement de la structure full)
+    if(!S.standards[ref])S.standards[ref]={};
+    Object.assign(S.standards[ref],stdData);
+    if(db)db.ref("standards/"+ref).update(stdData);
+  }
 
   if(propose){
     try{
@@ -4264,7 +4276,12 @@ function setStdTime(ref,gamme,dim,poste,val){
   S.standards[ref][gamme][dim][poste]=val;
 }
 function saveAllStandards(ref){
-  if(db)db.ref("standards/"+ref).set(S.standards[ref]||{});
+  const data=S.standards[ref];
+  if(!data||!Object.keys(data).length){
+    console.warn("saveAllStandards: données vides pour "+ref+", annulé");
+    return;
+  }
+  if(db)db.ref("standards/"+ref).set(data);
 }
 
 // Params state
