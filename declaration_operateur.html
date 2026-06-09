@@ -80,10 +80,6 @@ input[type=number]{font-size:17px;font-weight:700}
         <input type="date" id="f-date">
       </div>
       <div class="form-group">
-        <label class="fl">Poste de travail *</label>
-        <select id="f-ws"><option value="">— Choisir —</option></select>
-      </div>
-      <div class="form-group">
         <label class="fl">Ordre de fabrication (OF) *</label>
         <select id="f-of" onchange="onOfChange()"><option value="">— Choisir un OF —</option></select>
       </div>
@@ -192,6 +188,15 @@ db.ref("ofs").once("value").then(s=>{
 // Load prod webhook
 db.ref("config/slackProdWebhook").once("value").then(s=>{if(s.val())SLACK_PROD_WEBHOOK=s.val();}).catch(()=>{});
 
+// ── HELPERS ──
+function toA(x){return Array.isArray(x)?x:(x?Object.values(x):[]);}
+function normPoste(e){
+  if(!e)return"";
+  if(typeof e==="string")return e;
+  if(typeof e==="object"&&e.poste)return String(e.poste);
+  return"";
+}
+
 // ── OF CHANGE ──
 function onOfChange(){
   const ofId=document.getElementById("f-of").value;
@@ -199,18 +204,20 @@ function onOfChange(){
   const sel=document.getElementById("f-op");
   if(!of){sel.innerHTML='<option value="">— Choisir d\'abord un OF —</option>';return;}
   
-  // Get operations from OF groups
+  // Get operations from OF groups — groups peut être un objet Firebase {0:{...},1:{...}}
   const postes=new Set();
-  (of.groups||[]).forEach(g=>{(g.postes||[]).forEach(p=>postes.add(p));});
+  toA(of.groups).forEach(g=>{
+    toA(g.postes).forEach(p=>{const n=normPoste(p);if(n)postes.add(n);});
+  });
   
   sel.innerHTML='<option value="">— Choisir —</option>'+
     [...postes].map(p=>`<option value="${p}">${p}</option>`).join("");
   
   // Auto-fill lines from OF refs
   const refs=new Set();
-  (of.groups||[]).forEach(g=>{
+  toA(of.groups).forEach(g=>{
     if(g.ref)refs.add(g.ref);
-    (g.lines||[]).forEach(l=>{if(l.ref)refs.add(l.ref);});
+    toA(g.lines).forEach(l=>{if(l.ref)refs.add(l.ref);});
   });
   if(of.ref)refs.add(of.ref);
   
@@ -284,7 +291,6 @@ function toggleCause(lid,val){
 // ── SUBMIT ──
 function submitDecl(){
   const date=document.getElementById("f-date").value;
-  const wsId=document.getElementById("f-ws").value;
   const ofId=document.getElementById("f-of").value;
   const operation=document.getElementById("f-op").value;
   const operator=document.getElementById("f-operator").value.trim();
@@ -292,8 +298,8 @@ function submitDecl(){
   const errEl=document.getElementById("err-msg");
   errEl.style.display="none";
   
-  if(!date||!wsId||!ofId||!operation||!operator){
-    errEl.textContent="Veuillez remplir tous les champs obligatoires (poste, OF, opération, opérateur).";
+  if(!date||!ofId||!operation||!operator){
+    errEl.textContent="Veuillez remplir tous les champs obligatoires (OF, opération, opérateur).";
     errEl.style.display="block";
     return;
   }
@@ -321,7 +327,7 @@ function submitDecl(){
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Envoi…';
   
   const id="DEC-"+Date.now();
-  const decl={id,date,wsId,ofId,operation,operator,lines,notes,
+  const decl={id,date,ofId,operation,operator,lines,notes,
     createdAt:new Date().toISOString(),status:"VALIDÉE",source:"OPERATEUR"};
   
   db.ref("declarations/"+id).set(decl).then(()=>{
@@ -343,7 +349,7 @@ function showSuccess(decl){
   sc.style.display="block";
   document.getElementById("success-summary").innerHTML=
     `<strong>${decl.ofId}</strong> — ${decl.operation}<br>`+
-    `${ws?ws.name:decl.wsId} — ${decl.operator}<br>`+
+    `${decl.operator}<br>`+
     `<span style="color:var(--teal);font-weight:700">${totalOK} pcs OK</span>`+
     (totalNC>0?` — <span style="color:var(--red);font-weight:700">${totalNC} NC</span>`:"");
 }
@@ -352,7 +358,6 @@ function resetForm(){
   document.getElementById("form-area").style.display="block";
   document.getElementById("success-screen").style.display="none";
   document.getElementById("f-date").value=todayStr();
-  document.getElementById("f-ws").value="";
   document.getElementById("f-of").value="";
   document.getElementById("f-op").innerHTML='<option value="">— Choisir d\'abord un OF —</option>';
   document.getElementById("f-operator").value="";
