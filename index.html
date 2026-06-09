@@ -2030,7 +2030,7 @@ function saveStandards(propose){
   }
 }
 
-function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMins,ofGamme){
+function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMins,ofGamme,machineOverrides){
   if(!S.plan||typeof S.plan!=="object")S.plan={};
   const POSTE_MAP={
     "Découpe presse":"press60","Reprise Presse":"press60",
@@ -2059,8 +2059,10 @@ function proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,hpj,startMin
     // Find assigned machines from gamme config
     const opObj=gammeOps.find(op=>(op.name||op)===poste);
     const assignedMachines=(opObj&&opObj.machines&&opObj.machines.length)?opObj.machines:null;
-    // Pick best machine: first assigned, else fallback from POSTE_MAP
-    const wsId=assignedMachines?assignedMachines[0]:(POSTE_MAP[poste]||null);
+    // Machine : override utilisateur → gamme → POSTE_MAP
+    const wsId=(machineOverrides&&machineOverrides[idx])
+      ?machineOverrides[idx]
+      :(assignedMachines?assignedMachines[0]:(POSTE_MAP[poste]||null));
 
     if(!tUnit||!wsId){
       slots.push({poste,wsId:null,machines:assignedMachines||[],start:null,note:!tUnit?"Temps non saisi":"Poste sans machine"});
@@ -2115,7 +2117,8 @@ function renderQuickSchedule(){
   const{pfId,ref,postes,gamme,totalPcs,lines}=S.quickSchedule;
   const toA=x=>Array.isArray(x)?x:(x?Object.values(x):[]);
   const gammeOps=getGammeOps(ref,gamme);
-  const opDurs=postes.map(poste=>{
+  const _machineChoices=S.quickSchedule.machineChoices||{};
+  const opDurs=postes.map((poste,i)=>{
     let totalSec=0;
     toA(lines).filter(Boolean).forEach(line=>{
       const dim=String(line.dim||"");
@@ -2125,10 +2128,12 @@ function renderQuickSchedule(){
     });
     const totalMin=Math.round(totalSec/60);
     const nSlots=Math.ceil(totalSec/1800);
-    const opObj=gammeOps.find(op=>(op.name||op)===poste);
+    const opObj=gammeOps.find(op=>op.poste===poste||op.name===poste);
     const machines=(opObj&&opObj.machines&&opObj.machines.length)?opObj.machines:[];
-    const wsName=machines.length?machines.map(m=>{const w=getWS().find(x=>x.id===m);return w?w.name:m;}).join(", "):"—";
-    return{poste,totalSec,totalMin,nSlots,wsName};
+    const selectedWsId=_machineChoices[i]||(machines.length?machines[0]:"");
+    const wsObj=getWS().find(w=>w.id===selectedWsId);
+    const wsName=wsObj?wsObj.name:(selectedWsId||"—");
+    return{poste,totalSec,totalMin,nSlots,machines,selectedWsId,wsName};
   });
   // Si aucun poste connu → proposer de choisir la gamme manuellement
   if(!postes.length){
@@ -2164,7 +2169,11 @@ function renderQuickSchedule(){
         <span style="font-size:12px;font-weight:700;color:var(--text3);text-align:center">${i+1}</span>
         <div>
           <div style="font-weight:600;font-size:13px">${op.poste}</div>
-          <div style="font-size:11px;color:var(--text2)">Machine : ${op.wsName}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:3px">
+            ${op.machines.length>1
+              ?`<select onchange="setQuickMachine(${i},this.value)" style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface)">${op.machines.map(mId=>{const w=getWS().find(x=>x.id===mId);return '<option value="'+mId+'"'+(mId===op.selectedWsId?' selected':'')+'>'+(w?w.name:mId)+'</option>';}).join('')}</select>`
+              :`<span><i class="ti ti-tool" style="font-size:10px"></i> ${op.wsName}</span>`}
+          </div>
         </div>
         <div style="text-align:right">
           <div style="font-size:13px;font-weight:600;color:var(--teal)">${op.totalMin>0?op.totalMin+" min":"—"}</div>
@@ -2184,6 +2193,12 @@ function renderQuickSchedule(){
   <div style="display:flex;justify-content:flex-end">
     <button class="btn btn-primary" onclick="quickScheduleGo('${pfId}')"><i class="ti ti-calendar-plus"></i>Planifier les opérations</button>
   </div>`;
+}
+
+function setQuickMachine(idx,wsId){
+  if(!S.quickSchedule)return;
+  if(!S.quickSchedule.machineChoices)S.quickSchedule.machineChoices={};
+  S.quickSchedule.machineChoices[idx]=wsId;
 }
 
 function selectQuickGamme(gamme){
@@ -2217,8 +2232,9 @@ function quickScheduleGo(pfId){
     });
     if(totalP>0&&totalSec>0)stdData[poste]=totalSec/totalP;
   });
+  const machineOverrides=S.quickSchedule.machineChoices||{};
   S.quickSchedule=null;
-  proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,8,startMins,gamme);
+  proposePlanning(pfId,ref,postes,stdData,totalPcs,startDate,8,startMins,gamme,machineOverrides);
 }
 
 function getWeekKey(dateStr){
