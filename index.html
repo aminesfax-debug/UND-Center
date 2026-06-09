@@ -4104,13 +4104,13 @@ function getDeclOperations(){
   if(!of)return[];
   // Get postes from OF groups
   const postes=new Set();
-  (of.groups||[]).forEach(g=>(g.postes||[]).forEach(p=>postes.add(p)));
+  (of.groups||[]).forEach(g=>normGammeEntries(g.postes||[]).forEach(e=>{if(e.poste)postes.add(e.poste);}));
   if(!postes.size){
     // fallback: get from GAMMES
     const ref=of.ref||(of.groups&&of.groups[0]&&of.groups[0].ref);
     const gamme=of.gamme||(of.groups&&of.groups[0]&&of.groups[0].gamme);
     if(ref&&gamme&&GAMMES[ref]&&GAMMES[ref][gamme]){
-      GAMMES[ref][gamme].forEach(p=>postes.add(p));
+      normGammeEntries(GAMMES[ref][gamme]).forEach(e=>{if(e.poste)postes.add(e.poste);});
     }
   }
   return[...postes];
