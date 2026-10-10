@@ -310,7 +310,6 @@ function logForm(treeId, log, kind) {
 
 function taskForm(task, preset = {}) {
   const isNew = !task; task = task || { type: 'taille', date: preset.date || todayISO(), repeat: '' };
-  const trees = S.trees.filter(alive);
   const who = isNew ? treePicker(preset.treeIds || [])
     : `<p class="muted">🌳 ${esc(treeLabel(treeById(task.treeId)))}</p>`;
   sheet(isNew ? 'Nouvelle tâche' : 'Modifier la tâche', `${who}
@@ -626,7 +625,7 @@ const actions = {
   treeTab: ({ v }) => { ui.treeTab = v; render(); },
   logFilter: ({ v }) => { ui.logFilter = v; render(); },
   newLog: ({ id, kind }) => logForm(id, null, kind),
-  editLog: ({ id }) => { const l = S.logs.find(x => x.id === id); sheet('Entrée', `<button type="button" class="btn block" data-act="editLog2" data-id="${id}">✏️ Modifier</button><button type="button" class="btn danger block" data-act="delLog" data-id="${id}">🗑️ Supprimer</button>`); },
+  editLog: ({ id }) => { sheet('Entrée', `<button type="button" class="btn block" data-act="editLog2" data-id="${id}">✏️ Modifier</button><button type="button" class="btn danger block" data-act="delLog" data-id="${id}">🗑️ Supprimer</button>`); },
   editLog2: ({ id }) => logForm(S.logs.find(x => x.id === id).treeId, S.logs.find(x => x.id === id)),
   delLog: ({ id }) => { if (!confirm('Supprimer cette entrée ?')) return; const l = S.logs.find(x => x.id === id); if (l.photoId) delPhoto(l.photoId); S.logs = S.logs.filter(x => x.id !== id); save(); closeSheet(); render(); },
   water: ({ id }) => { const t = treeById(id); logWater(t, t.irrig?.litres); render(); toast('💧 Arrosage enregistré'); },

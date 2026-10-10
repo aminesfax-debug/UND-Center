@@ -57,7 +57,6 @@ function applyRemote(c, snap) {
   if (changed) { DB.put('kv', 'state', S); softRender(); }
 }
 
-let pushing = false;
 function pushDiff() {
   if (!Sync.on || !Sync.ready) return;
   const ops = [];
