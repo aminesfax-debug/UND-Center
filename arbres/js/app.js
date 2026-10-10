@@ -54,13 +54,13 @@ const DB = {
 };
 let S = null;
 let saveT = null;
-const save = () => { clearTimeout(saveT); saveT = setTimeout(() => DB.put('kv', 'state', S).catch(() => toast('⚠️ Échec de sauvegarde')), 150); };
+const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { DB.put('kv', 'state', S).catch(() => toast('⚠️ Échec de sauvegarde')); pushDiff(); }, 150); };
 function seedRegistry(existing = []) {
   const have = new Set(existing.map(f => norm(f.type) + '|' + norm(f.variety)));
   const out = [];
   for (const f of DEFAULT_FICHES) {
     if (have.has(norm(f.type) + '|' + norm(f.variety))) continue;
-    out.push({ id: uid(), type: f.type, variety: f.variety || '', exposition: '', sol: '', arrosage: '', plantation: '', taille: '', fertilisation: '', sante: '', remarques: '', floraison: [], recolte: [], plan: [], ...JSON.parse(JSON.stringify(f)) });
+    out.push({ id: 'def-' + norm(f.type).replace(/\W+/g, '-') + '-' + norm(f.variety).replace(/\W+/g, '-'), type: f.type, variety: f.variety || '', exposition: '', sol: '', arrosage: '', plantation: '', taille: '', fertilisation: '', sante: '', remarques: '', floraison: [], recolte: [], plan: [], ...JSON.parse(JSON.stringify(f)) });
   }
   return out;
 }
@@ -71,21 +71,22 @@ async function loadState() {
 }
 
 // Photos
+const delPhoto = id => { DB.del('photos', id); cloudDelPhoto(id); };
 const photoURLs = new Map();
 async function savePhoto(file) {
   const bmp = await createImageBitmap(file).catch(() => null);
   let blob = file;
   if (bmp) {
-    const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
     const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
     c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-    blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.75));
+    blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.7));
   }
-  const id = uid(); await DB.put('photos', id, blob); return id;
+  const id = uid(); await DB.put('photos', id, blob); cloudPutPhoto(id, blob); return id;
 }
 async function photoURL(id) {
   if (photoURLs.has(id)) return photoURLs.get(id);
-  const b = await DB.get('photos', id); if (!b) return null;
+  const b = (await DB.get('photos', id)) || (await cloudGetPhoto(id)); if (!b) return null;
   const u = URL.createObjectURL(b); photoURLs.set(id, u); return u;
 }
 async function hydrate(root = document) {
@@ -97,8 +98,8 @@ async function hydrate(root = document) {
 }
 async function formPhoto(fd, old) {
   const f = fd.get('photo');
-  if (f && f.size) { const id = await savePhoto(f); if (old) DB.del('photos', old); return id; }
-  if (fd.get('delphoto') && old) { DB.del('photos', old); return ''; }
+  if (f && f.size) { const id = await savePhoto(f); if (old) delPhoto(old); return id; }
+  if (fd.get('delphoto') && old) { delPhoto(old); return ''; }
   return old || '';
 }
 
@@ -188,7 +189,7 @@ function sheet(title, body, opts = {}) {
   if (opts.onOpen) opts.onOpen(form);
   hydrate(el);
 }
-function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; }
+function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; if (Sync.dirty) { Sync.dirty = false; render(); } }
 function syncKind(sel) {
   const k = sel.value;
   $$('[data-kinds]', sel.form).forEach(e => e.classList.toggle('hide', !e.dataset.kinds.split(' ').includes(k)));
@@ -421,6 +422,7 @@ function viewHome() {
   const bk = S.settings.lastBackup, bkOld = S.trees.length && (!bk || diffDays(t0, bk) > 30);
   return `<h1>🌳 Mon jardin</h1>
     ${bkOld ? `<div class="banner">💾 ${bk ? 'Dernière sauvegarde il y a ' + diffDays(t0, bk) + ' jours.' : 'Aucune sauvegarde.'} Vos données ne sont que sur ce téléphone. <a href="#/plus">Sauvegarder</a></div>` : ''}
+    ${!Sync.user && Sync.status !== 'nosdk' ? '<div class="banner">☁️ Synchronisation inactive — <a href="#/plus">se connecter</a></div>' : Sync.status === 'error' ? `<div class="banner danger">☁️ ${esc(Sync.err)}</div>` : ''}
     <div class="stats"><div class="stat"><b>${live.length}</b><span>arbres</span></div><div class="stat"><b style="color:${overdue.length ? 'var(--danger)' : 'inherit'}">${overdue.length}</b><span>en retard</span></div><div class="stat"><b style="color:${water.length ? 'var(--warn)' : 'inherit'}">${water.length}</b><span>à arroser</span></div></div>
     ${dars.map(x => `<div class="banner danger">⛔ <b>${esc(x.t.name)}</b> : ne pas récolter avant le ${fmtDate(x.d.date)} (${esc(x.d.product || 'traitement')}).</div>`).join('')}
     ${!live.length ? `<div class="empty">Aucun arbre pour l’instant.<br><br><a class="btn primary" data-act="newTree">+ Ajouter mon premier arbre</a></div>` : ''}
@@ -550,11 +552,19 @@ function viewRegistry() {
     <button class="fab" data-act="newFiche">+</button>`;
 }
 
+function syncCard() {
+  const st = Sync.status;
+  if (st === 'nosdk') return '<p class="small muted">Module Firebase non chargé (connexion nécessaire au premier lancement). Mode local uniquement.</p>';
+  if (!Sync.user) return '<p class="small muted">Connectez-vous pour partager les données entre vos appareils et avec les personnes autorisées. Sans connexion, l’appli reste utilisable en local.</p><button class="btn primary block" data-act="syncLogin">Se connecter</button>';
+  const msg = st === 'ok' ? '✅ À jour' : st === 'error' ? '⚠️ ' + esc(Sync.err) : '⏳ Synchronisation… (en attente du réseau si hors ligne)';
+  return `<div>${esc(Sync.user.email)}</div><div class="small" style="margin:4px 0 10px">${msg}</div><button class="btn block" data-act="syncLogout">Se déconnecter</button>`;
+}
 function viewMore() {
   const y = new Date().getFullYear(), hv = {};
   S.logs.filter(l => l.kind === 'recolte' && l.qty).forEach(l => { const tr = treeById(l.treeId); if (!tr) return; const k = tr.type, yy = l.date.slice(0, 4); ((hv[k] ||= {})[yy] = (hv[k][yy] || 0) + l.qty); });
   const yrs = [...new Set(Object.values(hv).flatMap(o => Object.keys(o)))].sort().slice(-4);
   return `<h1>⚙️ Plus</h1>
+    <h2>☁️ Synchronisation</h2><div class="card">${syncCard()}</div>
     <h2>💾 Sauvegarde</h2><div class="card"><p class="small muted">Les données sont stockées uniquement sur cet appareil. Sauvegardez régulièrement (fichier JSON avec photos) et gardez-le ailleurs (Drive, e-mail…).${S.settings.lastBackup ? '<br>Dernière : ' + fmtDate(S.settings.lastBackup) : ''}</p>
     <button class="btn primary block" data-act="export">⬇️ Exporter une sauvegarde</button>${navigator.canShare ? '<button class="btn block" data-act="share">📤 Partager la sauvegarde</button>' : ''}
     <label class="btn block" style="cursor:pointer">⬆️ Restaurer une sauvegarde<input type="file" id="imp" accept=".json,application/json" hidden></label></div>
@@ -579,7 +589,7 @@ function download(blob, name) { const a = document.createElement('a'); a.href = 
 async function importBackup(file) {
   const j = JSON.parse(await file.text());
   if (j.app !== 'mes-arbres' || !j.state) throw new Error('Fichier invalide');
-  if (!confirm('Remplacer toutes les données actuelles par cette sauvegarde ?')) return;
+  if (!confirm('Remplacer toutes les données actuelles par cette sauvegarde ? (Avec la synchronisation, les autres appareils seront alignés.)')) return;
   await DB.clear('photos'); photoURLs.clear();
   for (const [k, v] of Object.entries(j.photos || {})) await DB.put('photos', k, await (await fetch(v)).blob());
   S = j.state; await DB.put('kv', 'state', S); render(); toast('Sauvegarde restaurée');
@@ -606,7 +616,7 @@ const actions = {
   closeSheet: closeSheet,
   newTree: () => treeForm(),
   editTree: ({ id }) => treeForm(treeById(id)),
-  delTree: ({ id }) => { const t = treeById(id); if (!confirm(`Supprimer « ${t.name} » avec son journal et ses tâches ?\n(Pour un arbre mort, préférez le statut « Mort / retiré » afin de garder l’historique.)`)) return; S.logs.filter(l => l.treeId === id && l.photoId).forEach(l => DB.del('photos', l.photoId)); if (t.photoId) DB.del('photos', t.photoId); S.trees = S.trees.filter(x => x.id !== id); S.logs = S.logs.filter(l => l.treeId !== id); S.tasks = S.tasks.filter(x => x.treeId !== id); save(); location.hash = '#/arbres'; },
+  delTree: ({ id }) => { const t = treeById(id); if (!confirm(`Supprimer « ${t.name} » avec son journal et ses tâches ?\n(Pour un arbre mort, préférez le statut « Mort / retiré » afin de garder l’historique.)`)) return; S.logs.filter(l => l.treeId === id && l.photoId).forEach(l => delPhoto(l.photoId)); if (t.photoId) delPhoto(t.photoId); S.trees = S.trees.filter(x => x.id !== id); S.logs = S.logs.filter(l => l.treeId !== id); S.tasks = S.tasks.filter(x => x.treeId !== id); save(); location.hash = '#/arbres'; },
   gps: (_, el) => { const f = el.form; navigator.geolocation ? navigator.geolocation.getCurrentPosition(p => { f.lat.value = p.coords.latitude.toFixed(6); f.lng.value = p.coords.longitude.toFixed(6); }, () => toast('Position indisponible'), { enableHighAccuracy: true, timeout: 10000 }) : toast('GPS non supporté'); },
   fType: ({ v }) => { ui.fType = v; render(); },
   fZone: ({ v }) => { ui.fZone = v; render(); },
@@ -618,7 +628,7 @@ const actions = {
   newLog: ({ id, kind }) => logForm(id, null, kind),
   editLog: ({ id }) => { const l = S.logs.find(x => x.id === id); sheet('Entrée', `<button type="button" class="btn block" data-act="editLog2" data-id="${id}">✏️ Modifier</button><button type="button" class="btn danger block" data-act="delLog" data-id="${id}">🗑️ Supprimer</button>`); },
   editLog2: ({ id }) => logForm(S.logs.find(x => x.id === id).treeId, S.logs.find(x => x.id === id)),
-  delLog: ({ id }) => { if (!confirm('Supprimer cette entrée ?')) return; const l = S.logs.find(x => x.id === id); if (l.photoId) DB.del('photos', l.photoId); S.logs = S.logs.filter(x => x.id !== id); save(); closeSheet(); render(); },
+  delLog: ({ id }) => { if (!confirm('Supprimer cette entrée ?')) return; const l = S.logs.find(x => x.id === id); if (l.photoId) delPhoto(l.photoId); S.logs = S.logs.filter(x => x.id !== id); save(); closeSheet(); render(); },
   water: ({ id }) => { const t = treeById(id); logWater(t, t.irrig?.litres); render(); toast('💧 Arrosage enregistré'); },
   rain: rainForm,
   newTaskFor: ({ id }) => taskForm(null, { treeIds: [id] }),
@@ -637,11 +647,14 @@ const actions = {
   calTab: ({ v }) => { ui.cal.tab = v; render(); },
   calNav: ({ v }) => { const d = new Date(ui.cal.y, ui.cal.m + +v, 1); ui.cal.y = d.getFullYear(); ui.cal.m = d.getMonth(); ui.cal.sel = null; render(); },
   calDay: ({ v }) => { ui.cal.sel = v; render(); },
+  syncLogin: () => sheet('☁️ Connexion', `<label class="f">E-mail<input name="email" type="email" autocomplete="username" required value="${esc(S.settings.email || '')}"></label><label class="f">Mot de passe<input name="pass" type="password" autocomplete="current-password" required></label>`, {
+    submitLabel: 'Se connecter', onSubmit: async fd => { try { await syncLogin(fieldVal(fd, 'email'), fd.get('pass')); S.settings.email = fieldVal(fd, 'email'); toast('Connecté'); } catch (e) { toast('Connexion refusée : ' + (e.code || e.message)); return false; } } }),
+  syncLogout: async () => { if (!confirm('Se déconnecter ? Les données restent sur ce téléphone mais ne seront plus synchronisées.')) return; await syncLogout(); toast('Déconnecté'); },
   export: async () => { download(await buildBackup(), backupName()); render(); toast('Sauvegarde exportée'); },
   share: async () => { const b = await buildBackup(), f = new File([b], backupName(), { type: 'application/json' }); if (navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: 'Sauvegarde Mes Arbres' }).catch(() => {}); else toast('Partage non supporté'); },
   ics: () => download(buildICS(), 'mes-arbres.ics'),
   mergeDefaults: () => { const add = seedRegistry(S.registry); S.registry.push(...add); save(); toast(add.length + ' fiche(s) ajoutée(s)'); },
-  wipe: async () => { if (!confirm('Effacer TOUTES les données (arbres, journal, tâches, fiches) ?') || !confirm('Dernière confirmation : action irréversible.')) return; await DB.clear('photos'); photoURLs.clear(); S = { v: 1, trees: [], logs: [], tasks: [], registry: seedRegistry(), settings: {} }; save(); render(); }
+  wipe: async () => { if (!confirm('Effacer TOUTES les données (arbres, journal, tâches, fiches) ? Si la synchronisation est active, elles seront aussi supprimées sur les autres appareils.') || !confirm('Dernière confirmation : action irréversible.')) return; await DB.clear('photos'); photoURLs.clear(); S = { v: 1, trees: [], logs: [], tasks: [], registry: seedRegistry(), settings: {} }; save(); render(); }
 };
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
@@ -679,5 +692,6 @@ window.addEventListener('hashchange', () => { closeSheet(); render(); });
 (async function init() {
   try { await DB.open(); await loadState(); } catch (e) { $('#view').innerHTML = `<div class="empty">Stockage indisponible : ${esc(e.message)}<br>Désactivez la navigation privée.</div>`; return; }
   render();
+  syncInit();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
