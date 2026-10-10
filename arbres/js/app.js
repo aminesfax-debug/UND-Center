@@ -230,21 +230,34 @@ function harvestGroupForm() {
   updPick($('#sheet form'));
 }
 
+// Liste déroulante + option « Autre… » (les <datalist> sont mal gérés sur iPhone)
+function selNew(name, label, opts, cur, empty) {
+  const has = !cur || opts.includes(cur);
+  return `<div><label class="f">${label}<select name="${name}" data-new="${name}">${empty ? `<option value="">${esc(empty)}</option>` : ''}${opts.map(o => opt(o, o, cur)).join('')}<option value="__new"${has ? '' : ' selected'}>➕ Autre / nouveau…</option></select></label>
+    <input name="${name}_new" class="${has ? 'hide' : ''}" placeholder="Saisir…" value="${has ? '' : esc(cur)}" style="margin:-4px 0 10px"></div>`;
+}
+const selVal = (fd, n) => (fd.get(n) === '__new' ? fieldVal(fd, n + '_new') : fieldVal(fd, n));
+const varietiesOf = type => [...new Set([...S.registry.filter(f => norm(f.type) === norm(type) && f.variety).map(f => f.variety), ...S.trees.filter(x => norm(x.type) === norm(type) && x.variety).map(x => x.variety)])].sort();
+function refreshVarieties(form) {
+  const sel = form.elements.variety; if (!sel || sel.tagName !== 'SELECT') return;
+  const type = selVal(new FormData(form), 'type'), cur = sel.value;
+  const opts = varietiesOf(type);
+  sel.innerHTML = '<option value="">— Aucune —</option>' + opts.map(o => opt(o, o, cur)).join('') + '<option value="__new">➕ Autre / nouvelle…</option>';
+  sel.value = opts.includes(cur) ? cur : '';
+  form.elements.variety_new.classList.add('hide');
+}
+
 function treeForm(t) {
   const isNew = !t; t = t || { irrig: { summerDays: 7, winterDays: 0, litres: 20 }, status: 'bon', year: new Date().getFullYear() };
-  const types = [...new Set(S.registry.map(f => f.type))].sort();
-  const varieties = [...new Set(S.registry.filter(f => f.variety).map(f => f.variety))].sort();
+  const types = [...new Set([...S.registry.map(f => f.type), ...S.trees.map(x => x.type)])].sort();
   const zones = [...new Set(S.trees.map(x => x.zone).filter(Boolean))];
   sheet(isNew ? 'Nouvel arbre' : 'Modifier l’arbre', `
     <label class="f">Nom / repère<input name="name" value="${esc(t.name)}" placeholder="ex. Olivier du fond"></label>
     ${isNew ? '<label class="f">Nombre d’arbres identiques à créer (numérotés automatiquement)<input name="count" type="number" min="1" max="200" value="1"></label>' : ''}
-    <div class="g2"><label class="f">Type<input name="type" list="dl-types" value="${esc(t.type)}" required></label>
-    <label class="f">Variété<input name="variety" list="dl-var" value="${esc(t.variety)}"></label></div>
-    <datalist id="dl-types">${types.map(x => `<option value="${esc(x)}">`).join('')}</datalist><datalist id="dl-var">${varieties.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    <div class="g2">${selNew('type', 'Type', types, t.type, '— Choisir —')}${selNew('variety', 'Variété', varietiesOf(t.type), t.variety, '— Aucune —')}</div>
     <div class="g2"><label class="f">Année de plantation<input name="year" type="number" min="1900" max="2100" value="${t.year || ''}"></label>
     <label class="f">État de santé<select name="status">${Object.entries(STATUS).map(([k, v]) => opt(k, v[0], t.status)).join('')}</select></label></div>
-    <label class="f">Zone / emplacement<input name="zone" list="dl-zone" value="${esc(t.zone)}" placeholder="ex. Verger nord"></label>
-    <datalist id="dl-zone">${zones.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    ${selNew('zone', 'Zone / emplacement', zones, t.zone, '— Aucune —')}
     <div class="g3"><label class="f">Latitude<input name="lat" value="${t.lat ?? ''}" inputmode="decimal"></label><label class="f">Longitude<input name="lng" value="${t.lng ?? ''}" inputmode="decimal"></label>
     <label class="f">&nbsp;<button type="button" class="btn" data-act="gps">📍 Ici</button></label></div>
     <h3>💧 Irrigation (jours entre deux arrosages — 0 = pas d’arrosage)</h3>
@@ -257,15 +270,15 @@ function treeForm(t) {
     ${isNew ? '<label class="f" style="color:var(--text)"><input type="checkbox" name="plan" checked style="width:auto"> Générer le plan annuel type (taille, compost, traitements…) depuis la fiche du registre</label>' : ''}
   `, {
     onSubmit: async fd => {
-      const type = fieldVal(fd, 'type'); if (!type) { toast('Le type est obligatoire'); return false; }
+      const type = selVal(fd, 'type'); if (!type) { toast('Le type est obligatoire'); return false; }
       const count = isNew ? Math.min(200, Math.max(1, parseInt(fd.get('count')) || 1)) : 1;
-      const base = fieldVal(fd, 'name') || `${type} ${fieldVal(fd, 'variety')}`.trim();
+      const base = fieldVal(fd, 'name') || `${type} ${selVal(fd, 'variety')}`.trim();
       const photoId = await formPhoto(fd, t.photoId); let first = null, n = 0;
       for (let i = 1; i <= count; i++) {
       const obj = isNew ? { id: uid(), createdAt: todayISO() } : t; first ||= obj;
       Object.assign(obj, {
         name: count > 1 ? `${base} ${i}` : (fieldVal(fd, 'name') || `${base} #${S.trees.length + 1}`),
-        type, variety: fieldVal(fd, 'variety'), year: parseInt(fd.get('year')) || null, status: fd.get('status'), zone: fieldVal(fd, 'zone'),
+        type, variety: selVal(fd, 'variety'), year: parseInt(fd.get('year')) || null, status: fd.get('status'), zone: selVal(fd, 'zone'),
         lat: num(fd.get('lat')), lng: num(fd.get('lng')), notes: fieldVal(fd, 'notes'),
         irrig: { summerDays: parseInt(fd.get('summerDays')) || 0, winterDays: parseInt(fd.get('winterDays')) || 0, litres: parseInt(fd.get('litres')) || 0 }
       });
@@ -361,8 +374,7 @@ function ficheForm(f, prefill) {
   const types = [...new Set(S.registry.map(x => x.type))].sort();
   const ta = (n, l, ph = '') => `<label class="f">${l}<textarea name="${n}" placeholder="${esc(ph)}">${esc(f[n])}</textarea></label>`;
   sheet(isNew ? 'Nouvelle fiche' : 'Fiche : ' + esc([f.type, f.variety].filter(Boolean).join(' · ')), `
-    <div class="g2"><label class="f">Type<input name="type" list="dl-t2" value="${esc(f.type)}" required></label><label class="f">Variété (vide = fiche générale du type)<input name="variety" value="${esc(f.variety)}"></label></div>
-    <datalist id="dl-t2">${types.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    <div class="g2">${selNew('type', 'Type', types, f.type, '— Choisir —')}<label class="f">Variété (vide = fiche générale du type)<input name="variety" value="${esc(f.variety)}"></label></div>
     <p class="muted small">Les champs laissés vides héritent de la fiche générale du type.</p>
     ${ta('exposition', 'Exposition')}${ta('sol', 'Sol')}${ta('arrosage', 'Besoins en eau')}${ta('plantation', 'Plantation / écartement')}${ta('taille', 'Taille')}${ta('fertilisation', 'Fertilisation')}${ta('sante', 'Maladies & ravageurs')}${ta('remarques', 'Remarques')}
     <h3>🌸 Floraison</h3>${monthChecks('floraison', f.floraison)}
@@ -372,7 +384,7 @@ function ficheForm(f, prefill) {
     ${isNew ? '' : '<button type="button" class="btn danger block" style="margin-top:14px" data-act="delFiche" data-id="' + f.id + '">Supprimer la fiche</button>'}
   `, {
     onSubmit: fd => {
-      const type = fieldVal(fd, 'type'); if (!type) { toast('Type obligatoire'); return false; }
+      const type = selVal(fd, 'type'); if (!type) { toast('Type obligatoire'); return false; }
       const dup = S.registry.find(x => x.id !== f.id && norm(x.type) === norm(type) && norm(x.variety) === norm(fieldVal(fd, 'variety')));
       if (dup) { toast('Cette fiche existe déjà'); return false; }
       const o = isNew ? { id: uid() } : f;
@@ -662,12 +674,19 @@ document.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation(); fn(el.dataset, el);
 });
 document.addEventListener('change', e => {
+  if (e.target.matches('select[data-new]')) {
+    const f = e.target.form, n = e.target.dataset.new;
+    f.elements[n + '_new'].classList.toggle('hide', e.target.value !== '__new');
+    if (e.target.value === '__new') f.elements[n + '_new'].focus();
+    if (n === 'type') refreshVarieties(f);
+  }
   if (e.target.matches('select[data-pick]')) { const k = e.target.dataset.pick, v = e.target.value; if (v) $$('.checks label', e.target.form).forEach(l => { if (l.dataset[k] === v) $('input', l).checked = true; }); e.target.value = ''; updPick(e.target.form); }
   if (e.target.name === 'trees') updPick(e.target.form);
   if (e.target.matches('select[name=kind]')) syncKind(e.target);
   if (e.target.id === 'imp' && e.target.files[0]) importBackup(e.target.files[0]).catch(err => toast('Erreur : ' + err.message)).finally(() => (e.target.value = ''));
 });
 document.addEventListener('input', e => {
+  if (e.target.name === 'type_new') refreshVarieties(e.target.form);
   if (e.target.id === 'q') { ui.q = e.target.value; $('#tlist').innerHTML = treeList(); hydrate($('#tlist')); }
   if (e.target.id === 'rq') { ui.regQ = e.target.value; const pos = e.target.selectionStart; render(); const i = $('#rq'); i.focus(); i.setSelectionRange(pos, pos); }
 });
