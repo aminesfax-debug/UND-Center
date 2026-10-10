@@ -172,7 +172,7 @@ const monthRuns = months => { // [10,11,12,1] -> [{start:10,len:4}]
 };
 
 // ───────── UI de base ─────────
-const ui = { treeTab: 'fiche', logFilter: '', q: '', fType: '', fStatus: '', regQ: '', cal: { y: new Date().getFullYear(), m: new Date().getMonth(), tab: 'mois', sel: null } };
+const ui = { treeTab: 'fiche', logFilter: '', q: '', fType: '', fZone: '', fStatus: '', regQ: '', cal: { y: new Date().getFullYear(), m: new Date().getMonth(), tab: 'mois', sel: null } };
 
 function sheet(title, body, opts = {}) {
   const el = $('#sheet');
@@ -185,6 +185,7 @@ function sheet(title, body, opts = {}) {
     catch (err) { console.error(err); toast('Erreur : ' + err.message); }
   };
   $$('select[name=kind]', form).forEach(syncKind);
+  if (opts.onOpen) opts.onOpen(form);
   hydrate(el);
 }
 function closeSheet() { $('#sheet').hidden = true; $('#sheet').innerHTML = ''; }
@@ -197,6 +198,37 @@ const monthChecks = (name, sel = []) => `<div class="months">${MONTHS.map((m, i)
 const fieldVal = (fd, n) => (fd.get(n) || '').toString().trim();
 
 // ───────── Formulaires ─────────
+function treePicker(pre = []) {
+  const live = S.trees.filter(alive).sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
+  const fulls = [...new Set(live.map(treeFull))].sort(), zones = [...new Set(live.map(t => t.zone).filter(Boolean))].sort();
+  return `<label class="f">Arbres concernés <b id="pickn"></b></label>
+    <div class="row" style="margin-bottom:6px"><button type="button" class="btn sm" data-act="pick" data-v="1">Tous</button><button type="button" class="btn sm" data-act="pick" data-v="0">Aucun</button>
+    <select data-pick="full"><option value="">+ type/variété…</option>${fulls.map(x => `<option>${esc(x)}</option>`).join('')}</select>
+    ${zones.length ? `<select data-pick="zone"><option value="">+ zone…</option>${zones.map(x => `<option>${esc(x)}</option>`).join('')}</select>` : ''}</div>
+    <div class="checks" style="max-height:230px">${live.length ? live.map(t => `<label data-full="${esc(treeFull(t))}" data-zone="${esc(t.zone)}"><input type="checkbox" name="trees" value="${t.id}"${pre.includes(t.id) ? ' checked' : ''}> ${esc(t.name)} <span class="muted small">${esc(treeFull(t))}</span></label>`).join('') : '<span class="muted">Aucun arbre.</span>'}</div>`;
+}
+function updPick(f) { const n = $('#pickn', f); if (n) n.textContent = `(${$$('input[name=trees]:checked', f).length} sélectionné${$$('input[name=trees]:checked', f).length > 1 ? 's' : ''})`; }
+function waterGroupForm() {
+  sheet('💧 Arrosage groupé', `<div class="g2"><label class="f">Date<input type="date" name="date" value="${todayISO()}"></label><label class="f">Litres / arbre (vide = valeur de chaque arbre)<input name="l" inputmode="decimal"></label></div>${treePicker()}`, {
+    onSubmit: fd => { const ids = fd.getAll('trees'); if (!ids.length) { toast('Aucun arbre choisi'); return false; } const l = num(fd.get('l')); ids.forEach(id => { const t = treeById(id); logWater(t, l ?? t.irrig?.litres, fd.get('date')); }); render(); toast(`💧 ${ids.length} arbres arrosés`); }
+  });
+  updPick($('#sheet form'));
+}
+function harvestGroupForm() {
+  sheet('🧺 Récolte groupée', `<p class="muted small">Pour une récolte sans pesée arbre par arbre : le total est <b>réparti également</b> entre les arbres choisis et marqué « estimation ». Pour des chiffres exacts, saisissez la récolte sur la fiche de chaque arbre.</p>
+    <div class="g2"><label class="f">Date<input type="date" name="date" value="${todayISO()}"></label><label class="f">Total récolté (kg)<input name="kg" inputmode="decimal" required></label></div>
+    <label class="f">Huile obtenue (L) — olives, optionnel<input name="oil" inputmode="decimal"></label>${treePicker()}`, {
+    onSubmit: fd => {
+      const ids = fd.getAll('trees'), kg = num(fd.get('kg')); if (!ids.length || !kg) { toast('Arbres et total requis'); return false; }
+      const oil = num(fd.get('oil')), blocked = ids.map(treeById).filter(t => darUntil(t));
+      if (blocked.length && !confirm(`⚠️ ${blocked.length} arbre(s) sont sous délai avant récolte (ex. ${blocked[0].name}). Enregistrer quand même ?`)) return false;
+      ids.forEach(id => S.logs.push({ id: uid(), treeId: id, date: fd.get('date'), kind: 'recolte', text: 'Récolte groupée (répartition égale, estimation)', qty: Math.round(kg / ids.length * 100) / 100, oil: oil ? Math.round(oil / ids.length * 100) / 100 : null, estimated: true, product: '', dar: 0 }));
+      save(); render(); toast(`Récolte répartie sur ${ids.length} arbres`);
+    }
+  });
+  updPick($('#sheet form'));
+}
+
 function treeForm(t) {
   const isNew = !t; t = t || { irrig: { summerDays: 7, winterDays: 0, litres: 20 }, status: 'bon', year: new Date().getFullYear() };
   const types = [...new Set(S.registry.map(f => f.type))].sort();
@@ -204,6 +236,7 @@ function treeForm(t) {
   const zones = [...new Set(S.trees.map(x => x.zone).filter(Boolean))];
   sheet(isNew ? 'Nouvel arbre' : 'Modifier l’arbre', `
     <label class="f">Nom / repère<input name="name" value="${esc(t.name)}" placeholder="ex. Olivier du fond"></label>
+    ${isNew ? '<label class="f">Nombre d’arbres identiques à créer (numérotés automatiquement)<input name="count" type="number" min="1" max="200" value="1"></label>' : ''}
     <div class="g2"><label class="f">Type<input name="type" list="dl-types" value="${esc(t.type)}" required></label>
     <label class="f">Variété<input name="variety" list="dl-var" value="${esc(t.variety)}"></label></div>
     <datalist id="dl-types">${types.map(x => `<option value="${esc(x)}">`).join('')}</datalist><datalist id="dl-var">${varieties.map(x => `<option value="${esc(x)}">`).join('')}</datalist>
@@ -224,19 +257,24 @@ function treeForm(t) {
   `, {
     onSubmit: async fd => {
       const type = fieldVal(fd, 'type'); if (!type) { toast('Le type est obligatoire'); return false; }
-      const obj = isNew ? { id: uid(), createdAt: todayISO() } : t;
+      const count = isNew ? Math.min(200, Math.max(1, parseInt(fd.get('count')) || 1)) : 1;
+      const base = fieldVal(fd, 'name') || `${type} ${fieldVal(fd, 'variety')}`.trim();
+      const photoId = await formPhoto(fd, t.photoId); let first = null, n = 0;
+      for (let i = 1; i <= count; i++) {
+      const obj = isNew ? { id: uid(), createdAt: todayISO() } : t; first ||= obj;
       Object.assign(obj, {
-        name: fieldVal(fd, 'name') || `${type} ${fieldVal(fd, 'variety')}`.trim() + ` #${S.trees.length + (isNew ? 1 : 0)}`,
+        name: count > 1 ? `${base} ${i}` : (fieldVal(fd, 'name') || `${base} #${S.trees.length + 1}`),
         type, variety: fieldVal(fd, 'variety'), year: parseInt(fd.get('year')) || null, status: fd.get('status'), zone: fieldVal(fd, 'zone'),
         lat: num(fd.get('lat')), lng: num(fd.get('lng')), notes: fieldVal(fd, 'notes'),
         irrig: { summerDays: parseInt(fd.get('summerDays')) || 0, winterDays: parseInt(fd.get('winterDays')) || 0, litres: parseInt(fd.get('litres')) || 0 }
       });
-      obj.photoId = await formPhoto(fd, t.photoId);
+      obj.photoId = i === 1 ? photoId : '';
       if (isNew) S.trees.push(obj);
-      let n = 0; if (isNew && fd.get('plan')) n = ensurePlan(obj);
+      if (isNew && fd.get('plan')) n += ensurePlan(obj);
+      }
       save();
-      if (isNew) location.hash = '#/arbre/' + obj.id; else render();
-      toast(isNew ? `Arbre ajouté${n ? ` · ${n} tâches planifiées` : ''}` : 'Modifié');
+      if (isNew && count === 1) location.hash = '#/arbre/' + first.id; else if (isNew) location.hash = '#/arbres'; else render();
+      toast(isNew ? `${count} arbre(s) ajouté(s)${n ? ` · ${n} tâches planifiées` : ''}` : 'Modifié');
     }
   });
 }
@@ -249,6 +287,7 @@ function logForm(treeId, log, kind) {
     <label class="f">Type<select name="kind">${Object.entries(LOG_KINDS).map(([k, v]) => opt(k, v.i + ' ' + v.l, log.kind)).join('')}</select></label></div>
     <label class="f">Description<textarea name="text" placeholder="Observation, travail réalisé…">${esc(log.text)}</textarea></label>
     <label class="f" data-kinds="recolte">Quantité récoltée (kg)<input name="qty_kg" inputmode="decimal" value="${log.kind === 'recolte' ? log.qty ?? '' : ''}"></label>
+    ${t && /olivier/i.test(norm(t.type)) ? `<label class="f" data-kinds="recolte">Huile obtenue (L) — optionnel<input name="oil" inputmode="decimal" value="${log.oil ?? ''}"></label>` : ''}
     <label class="f" data-kinds="irrigation">Eau apportée (litres)<input name="qty_l" inputmode="decimal" value="${log.kind === 'irrigation' ? log.qty ?? '' : ''}"></label>
     <label class="f" data-kinds="traitement travail">Produit / dose<input name="product" value="${esc(log.product)}"></label>
     <label class="f" data-kinds="traitement">Délai avant récolte (jours) — voir l’étiquette<input name="dar" type="number" min="0" value="${log.dar || ''}"></label>
@@ -260,7 +299,7 @@ function logForm(treeId, log, kind) {
       if (k === 'recolte') { const d = darUntil(t); if (d && d.date > fd.get('date') && !confirm(`⚠️ Délai avant récolte en cours jusqu’au ${fmtDate(d.date)} (${d.product || 'traitement'}). Enregistrer quand même ?`)) return false; }
       const obj = isNew ? { id: uid(), treeId } : log;
       Object.assign(obj, { date: fd.get('date'), kind: k, text: fieldVal(fd, 'text'), product: fieldVal(fd, 'product'), dar: k === 'traitement' ? parseInt(fd.get('dar')) || 0 : 0,
-        qty: k === 'recolte' ? num(fd.get('qty_kg')) : k === 'irrigation' ? num(fd.get('qty_l')) : null });
+        oil: k === 'recolte' ? num(fd.get('oil')) : null, qty: k === 'recolte' ? num(fd.get('qty_kg')) : k === 'irrigation' ? num(fd.get('qty_l')) : null });
       obj.photoId = await formPhoto(fd, log.photoId);
       if (isNew) S.logs.push(obj);
       save(); render(); toast('Enregistré');
@@ -271,7 +310,7 @@ function logForm(treeId, log, kind) {
 function taskForm(task, preset = {}) {
   const isNew = !task; task = task || { type: 'taille', date: preset.date || todayISO(), repeat: '' };
   const trees = S.trees.filter(alive);
-  const who = isNew ? `<label class="f">Arbres concernés</label><div class="checks">${trees.length ? trees.map(t => `<label><input type="checkbox" name="trees" value="${t.id}"${(preset.treeIds || []).includes(t.id) ? ' checked' : ''}> ${esc(t.name)} <span class="muted small">${esc(treeFull(t))}</span></label>`).join('') : '<span class="muted">Aucun arbre.</span>'}</div>`
+  const who = isNew ? treePicker(preset.treeIds || [])
     : `<p class="muted">🌳 ${esc(treeLabel(treeById(task.treeId)))}</p>`;
   sheet(isNew ? 'Nouvelle tâche' : 'Modifier la tâche', `${who}
     <div class="g2"><label class="f">Action<select name="type">${Object.entries(TASK_TYPES).map(([k, v]) => opt(k, v.i + ' ' + v.l, task.type)).join('')}</select></label>
@@ -282,6 +321,7 @@ function taskForm(task, preset = {}) {
     <label class="f">Notes<textarea name="notes">${esc(task.notes)}</textarea></label>
     ${isNew ? '' : '<button type="button" class="btn danger block" data-act="delTask" data-id="' + task.id + '">Supprimer la tâche</button>'}
   `, {
+    onOpen: f => updPick(f),
     onSubmit: fd => {
       const ids = isNew ? fd.getAll('trees') : [task.treeId];
       if (!ids.length) { toast('Choisissez au moins un arbre'); return false; }
@@ -384,7 +424,7 @@ function viewHome() {
     <div class="stats"><div class="stat"><b>${live.length}</b><span>arbres</span></div><div class="stat"><b style="color:${overdue.length ? 'var(--danger)' : 'inherit'}">${overdue.length}</b><span>en retard</span></div><div class="stat"><b style="color:${water.length ? 'var(--warn)' : 'inherit'}">${water.length}</b><span>à arroser</span></div></div>
     ${dars.map(x => `<div class="banner danger">⛔ <b>${esc(x.t.name)}</b> : ne pas récolter avant le ${fmtDate(x.d.date)} (${esc(x.d.product || 'traitement')}).</div>`).join('')}
     ${!live.length ? `<div class="empty">Aucun arbre pour l’instant.<br><br><a class="btn primary" data-act="newTree">+ Ajouter mon premier arbre</a></div>` : ''}
-    ${water.length ? `<h2>💧 À arroser <button class="btn sm right" data-act="rain">🌧️ Il a plu</button></h2><div class="card">${water.map(({ t, n }) => `<div class="task"><button class="ck" data-act="water" data-id="${t.id}">💧</button><div class="col"><a href="#/arbre/${t.id}"><b>${esc(t.name)}</b></a><div class="small muted">${n.last ? 'Dernier : ' + fmtDate(n.last) + ' · retard ' + Math.max(0, diffDays(t0, n.date)) + ' j' : 'Jamais arrosé'} · ${t.irrig.litres || '?'} L</div></div></div>`).join('')}</div>` : (live.length ? `<button class="btn sm" data-act="rain">🌧️ Il a plu</button>` : '')}
+    ${water.length ? `<h2>💧 À arroser (${water.length}) <button class="btn sm right" data-act="waterAll">Tout arroser</button> <button class="btn sm" data-act="rain">🌧️</button></h2><div class="card">${water.map(({ t, n }) => `<div class="task"><button class="ck" data-act="water" data-id="${t.id}">💧</button><div class="col"><a href="#/arbre/${t.id}"><b>${esc(t.name)}</b></a><div class="small muted">${n.last ? 'Dernier : ' + fmtDate(n.last) + ' · retard ' + Math.max(0, diffDays(t0, n.date)) + ' j' : 'Jamais arrosé'} · ${t.irrig.litres || '?'} L</div></div></div>`).join('')}</div>` : (live.length ? `<button class="btn sm" data-act="rain">🌧️ Il a plu</button>` : '')}
     ${overdue.length ? `<h2>⚠️ En retard</h2><div class="card">${overdue.map(x => taskRow(x)).join('')}</div>` : ''}
     ${today.length ? `<h2>📌 Aujourd’hui</h2><div class="card">${today.map(x => taskRow(x)).join('')}</div>` : ''}
     <h2>🗓️ Dans les 14 jours</h2><div class="card">${soon.length ? soon.map(x => taskRow(x)).join('') : '<span class="muted">Rien de prévu.</span>'}</div>
@@ -392,15 +432,17 @@ function viewHome() {
 }
 
 function viewTrees() {
-  const types = [...new Set(S.trees.map(t => t.type))].sort();
+  const types = [...new Set(S.trees.map(t => t.type))].sort(), zones = [...new Set(S.trees.map(t => t.zone).filter(Boolean))].sort();
   return `<h1>🌳 Arbres <span class="muted small">(${S.trees.length})</span></h1>
     <input id="q" type="search" placeholder="Rechercher (nom, type, variété, zone)…" value="${esc(ui.q)}" style="margin-bottom:8px">
     <div class="tabs"><button data-act="fType" data-v="" class="${!ui.fType ? 'on' : ''}">Tous</button>${types.map(x => `<button data-act="fType" data-v="${esc(x)}" class="${ui.fType === x ? 'on' : ''}">${esc(x)}</button>`).join('')}</div>
+    ${zones.length ? `<div class="tabs"><button data-act="fZone" data-v="" class="${!ui.fZone ? 'on' : ''}">Toutes zones</button>${zones.map(x => `<button data-act="fZone" data-v="${esc(x)}" class="${ui.fZone === x ? 'on' : ''}">${esc(x)}</button>`).join('')}</div>` : ''}
+    <div class="row" style="margin-bottom:10px"><button class="btn sm col" data-act="waterGroup">💧 Arrosage groupé</button><button class="btn sm col" data-act="harvestGroup">🧺 Récolte groupée</button></div>
     <div id="tlist">${treeList()}</div><button class="fab" data-act="newTree">+</button>`;
 }
 function treeList() {
   const q = norm(ui.q);
-  const list = S.trees.filter(t => (!ui.fType || t.type === ui.fType) && (!q || norm([t.name, t.type, t.variety, t.zone].join(' ')).includes(q))).sort((a, b) => a.name.localeCompare(b.name));
+  const list = S.trees.filter(t => (!ui.fType || t.type === ui.fType) && (!ui.fZone || t.zone === ui.fZone) && (!q || norm([t.name, t.type, t.variety, t.zone].join(' ')).includes(q))).sort((a, b) => a.name.localeCompare(b.name));
   if (!list.length) return `<div class="empty">${S.trees.length ? 'Aucun résultat.' : 'Appuyez sur + pour ajouter un arbre.'}</div>`;
   const t0 = todayISO();
   return list.map(t => {
@@ -445,10 +487,10 @@ function viewTree(id) {
       <div class="card">${il.length ? il.slice(0, 40).map(l => `<div class="log" data-act="editLog" data-id="${l.id}"><div class="ic">${l.source === 'pluie' ? '🌧️' : '💧'}</div><div class="col">${fmtDate(l.date)}${l.qty ? ` · ${l.qty} L` : ''}<div class="small muted">${esc(l.text)}</div></div></div>`).join('') : '<span class="muted">Aucun arrosage enregistré.</span>'}</div>`;
   } else if (ui.treeTab === 'recoltes') {
     const hv = logs.filter(l => l.kind === 'recolte' && l.qty), by = {};
-    hv.forEach(l => { const y = l.date.slice(0, 4); by[y] = (by[y] || 0) + l.qty; });
+    const oil = {}; hv.forEach(l => { const y = l.date.slice(0, 4); by[y] = (by[y] || 0) + l.qty; if (l.oil) { oil[y] = oil[y] || { l: 0, kg: 0 }; oil[y].l += l.oil; oil[y].kg += l.qty; } });
     const ys = Object.keys(by).sort().reverse(), mx = Math.max(1, ...Object.values(by));
     body = `<button class="btn primary block" data-act="newLog" data-id="${id}" data-kind="recolte">+ Enregistrer une récolte</button>
-      <div class="card">${ys.length ? ys.map(y => `<div style="margin-bottom:8px"><div class="row"><b>${y}</b><span class="right">${Math.round(by[y] * 10) / 10} kg</span></div><div class="bar" style="width:${by[y] / mx * 100}%"></div></div>`).join('') : '<span class="muted">Aucune récolte enregistrée.</span>'}</div>`;
+      <p class="muted small">Alternance : comparez les années, les oliviers produisent souvent beaucoup une année sur deux. Rendement huile = litres × 0,916 / kg.</p><div class="card">${ys.length ? ys.map(y => `<div style="margin-bottom:8px"><div class="row"><b>${y}</b><span class="right">${Math.round(by[y] * 10) / 10} kg${oil[y] ? ` · ${Math.round(oil[y].l * 10) / 10} L d’huile (≈ ${Math.round(oil[y].l * 0.916 / oil[y].kg * 1000) / 10} %)` : ''}</span></div><div class="bar" style="width:${by[y] / mx * 100}%"></div></div>`).join('') : '<span class="muted">Aucune récolte enregistrée.</span>'}</div>`;
   }
   return `<div class="row" style="margin-bottom:8px"><a href="#/arbres" class="btn sm">← Arbres</a><span class="right"></span><button class="btn sm" data-act="editTree" data-id="${id}">✏️</button></div>
     ${treeThumb(t, true)}<h1 style="margin-bottom:2px">${esc(t.name)}</h1>
@@ -567,6 +609,10 @@ const actions = {
   delTree: ({ id }) => { const t = treeById(id); if (!confirm(`Supprimer « ${t.name} » avec son journal et ses tâches ?\n(Pour un arbre mort, préférez le statut « Mort / retiré » afin de garder l’historique.)`)) return; S.logs.filter(l => l.treeId === id && l.photoId).forEach(l => DB.del('photos', l.photoId)); if (t.photoId) DB.del('photos', t.photoId); S.trees = S.trees.filter(x => x.id !== id); S.logs = S.logs.filter(l => l.treeId !== id); S.tasks = S.tasks.filter(x => x.treeId !== id); save(); location.hash = '#/arbres'; },
   gps: (_, el) => { const f = el.form; navigator.geolocation ? navigator.geolocation.getCurrentPosition(p => { f.lat.value = p.coords.latitude.toFixed(6); f.lng.value = p.coords.longitude.toFixed(6); }, () => toast('Position indisponible'), { enableHighAccuracy: true, timeout: 10000 }) : toast('GPS non supporté'); },
   fType: ({ v }) => { ui.fType = v; render(); },
+  fZone: ({ v }) => { ui.fZone = v; render(); },
+  waterGroup: waterGroupForm, harvestGroup: harvestGroupForm,
+  pick: ({ v }, el) => { $$('input[name=trees]', el.form).forEach(c => (c.checked = v === '1')); updPick(el.form); },
+  waterAll: () => { const t0 = todayISO(); let n = 0; S.trees.filter(alive).forEach(t => { const w = nextWater(t); if (w && w.date <= t0) { logWater(t, t.irrig?.litres); n++; } }); render(); toast(`💧 ${n} arbres arrosés`); },
   treeTab: ({ v }) => { ui.treeTab = v; render(); },
   logFilter: ({ v }) => { ui.logFilter = v; render(); },
   newLog: ({ id, kind }) => logForm(id, null, kind),
@@ -604,6 +650,8 @@ document.addEventListener('click', e => {
   e.preventDefault(); e.stopPropagation(); fn(el.dataset, el);
 });
 document.addEventListener('change', e => {
+  if (e.target.matches('select[data-pick]')) { const k = e.target.dataset.pick, v = e.target.value; if (v) $$('.checks label', e.target.form).forEach(l => { if (l.dataset[k] === v) $('input', l).checked = true; }); e.target.value = ''; updPick(e.target.form); }
+  if (e.target.name === 'trees') updPick(e.target.form);
   if (e.target.matches('select[name=kind]')) syncKind(e.target);
   if (e.target.id === 'imp' && e.target.files[0]) importBackup(e.target.files[0]).catch(err => toast('Erreur : ' + err.message)).finally(() => (e.target.value = ''));
 });
