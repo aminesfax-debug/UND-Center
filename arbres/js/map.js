@@ -233,7 +233,7 @@ function fitRow(pts) { // pts: [{x,y,pos}]
   let cov = 0, vr = 0; pts.forEach((p, k) => { cov += (p.pos - mp) * (sv[k] - ms); vr += (p.pos - mp) ** 2; });
   const b = vr ? cov / vr : 0; return { mx, my, dx, dy, a: ms - b * mp, b };
 }
-function planAlign(row, even, fill) {
+function planFit(row, even, fill) {
   const all = S.trees.filter(t => alive(t) && t.row === row && t.pos), placed = all.filter(hasPos);
   if (placed.length < 2 || new Set(placed.map(t => t.pos)).size < 2) return { err: 'Il faut au moins 2 arbres placés avec des n° différents dans cette rangée.' };
   const lat0 = placed.reduce((s, t) => s + t.lat, 0) / placed.length, lng0 = placed.reduce((s, t) => s + t.lng, 0) / placed.length;
@@ -259,24 +259,58 @@ function planAlign(row, even, fill) {
   const spacing = Math.abs(fit.b);
   return { items, added, mean: moves.reduce((s, v) => s + v, 0) / moves.length, max: Math.max(...moves), spacing, outliers: pp.length - inl.length };
 }
+// Mode « arbres de référence » : la ligne passe exactement par deux arbres dont VOUS êtes sûr de la position.
+// Les autres (même mal placés) sont recalculés d'après leur n° : ils ne participent pas à la ligne.
+function planAnchors(row, aId, bId, even, fill) {
+  const A = treeById(aId), B = treeById(bId);
+  if (!A || !B || A.id === B.id || !hasPos(A) || !hasPos(B)) return { err: 'Choisissez deux arbres de référence déjà placés.' };
+  if (A.pos === B.pos) return { err: 'Les deux arbres de référence ont le même n° dans la rangée.' };
+  const all = S.trees.filter(t => alive(t) && t.row === row && t.pos && t.id !== A.id && t.id !== B.id);
+  const kx = 111320 * Math.cos(A.lat * Math.PI / 180), ky = 110540;
+  const dxm = (B.lng - A.lng) * kx, dym = (B.lat - A.lat) * ky, L2 = dxm * dxm + dym * dym;
+  const items = [], moves = []; let added = 0;
+  all.forEach(t => {
+    const k0 = (t.pos - A.pos) / (B.pos - A.pos);
+    let k = k0;
+    if (!even && hasPos(t)) k = (((t.lng - A.lng) * kx) * dxm + ((t.lat - A.lat) * ky) * dym) / L2; // simple redressement : projection
+    if (!hasPos(t) && !fill) return;
+    const lat = A.lat + (B.lat - A.lat) * k, lng = A.lng + (B.lng - A.lng) * k;
+    if (hasPos(t)) moves.push(Math.hypot((lng - t.lng) * kx, (lat - t.lat) * ky)); else added++;
+    items.push({ t, lat, lng, was: hasPos(t) });
+  });
+  if (!items.length) return { err: 'Aucun autre arbre à positionner dans cette rangée.' };
+  return { items, added, mean: moves.length ? moves.reduce((s, v) => s + v, 0) / moves.length : 0, max: moves.length ? Math.max(...moves) : 0, spacing: Math.sqrt(L2) / Math.abs(B.pos - A.pos), outliers: 0, anchors: [A, B] };
+}
 function rowForm() {
   const rows = rowsList();
   if (!rows.length) { toast('Définissez d’abord une rangée (📋 Définir une rangée)'); return; }
-  sheet('↔️ Aligner une rangée', `<p class="muted small">Place les arbres de la rangée sur une <b>ligne droite</b> ajustée sur ceux que vous avez déjà positionnés (au moins 2), avec un espacement régulier selon leur n°. Les arbres sans position sont placés à leur emplacement théorique. Vous pourrez annuler.</p>
-    <label class="f">Rangée<select name="row">${rows.map(r => { const n = S.trees.filter(t => t.row === r && alive(t)).length, p = S.trees.filter(t => t.row === r && alive(t) && hasPos(t)).length; return `<option value="${esc(r)}">${esc(r)} — ${p} placé(s) / ${n}</option>`; }).join('')}</select></label>
+  const refs = r => S.trees.filter(t => t.row === r && alive(t) && hasPos(t) && t.pos).sort((a, b) => a.pos - b.pos);
+  const refOpts = (r, sel) => refs(r).map(t => `<option value="${t.id}"${t.id === sel ? ' selected' : ''}>n°${t.pos} · ${esc(t.name)}</option>`).join('');
+  const r0 = rows.find(r => refs(r).length >= 2) || rows[0], f0 = refs(r0);
+  sheet('↔️ Aligner une rangée', `<p class="muted small">Place les arbres de la rangée sur une ligne droite, espacés régulièrement selon leur n°. Vous pourrez annuler.</p>
+    <label class="f">Rangée<select name="row" id="rowsel">${rows.map(r => { const n = S.trees.filter(t => t.row === r && alive(t)).length, p = S.trees.filter(t => t.row === r && alive(t) && hasPos(t)).length; return `<option value="${esc(r)}"${r === r0 ? ' selected' : ''}>${esc(r)} — ${p} placé(s) / ${n}</option>`; }).join('')}</select></label>
+    <div class="card" style="padding:10px">
+      <label style="display:block;color:var(--text)"><input type="radio" name="mode" value="anchors" checked style="width:auto"> <b>Entre deux arbres de référence</b> <span class="muted small">(recommandé : ils ne bougent pas, les autres sont recalculés)</span></label>
+      <div class="g2" style="margin-top:8px"><label class="f" style="margin:0">Premier arbre sûr<select name="a" id="rowa">${refOpts(r0, f0[0] && f0[0].id)}</select></label>
+      <label class="f" style="margin:0">Dernier arbre sûr<select name="b" id="rowb">${refOpts(r0, f0.length && f0[f0.length - 1].id)}</select></label></div>
+      <label style="display:block;color:var(--text);margin-top:12px"><input type="radio" name="mode" value="fit" style="width:auto"> <b>Ajuster sur tous les arbres déjà placés</b> <span class="muted small">(si la plupart sont bien placés ; les points trop écartés sont ignorés)</span></label>
+    </div>
     <label class="f" style="color:var(--text)"><input type="checkbox" name="even" checked style="width:auto"> Espacer régulièrement selon le n° (sinon : seulement redresser sur la ligne)</label>
     <label class="f" style="color:var(--text)"><input type="checkbox" name="fill" checked style="width:auto"> Positionner aussi les arbres de la rangée sans position</label>`, {
     submitLabel: 'Aligner',
     onSubmit: fd => {
-      const row = fd.get('row'), r = planAlign(row, !!fd.get('even'), !!fd.get('fill'));
+      const row = fd.get('row'), even = !!fd.get('even'), fill = !!fd.get('fill');
+      const r = fd.get('mode') === 'fit' ? planFit(row, even, fill) : planAnchors(row, fd.get('a'), fd.get('b'), even, fill);
       if (r.err) { toast(r.err); return false; }
       const sp = r.spacing ? ` · espacement ≈ ${r.spacing.toFixed(1).replace('.', ',')} m` : '';
-      if (!confirm(`Rangée « ${row} » : ${r.items.length} arbre(s)${r.added ? ` (dont ${r.added} nouvellement placé(s))` : ''}${sp}.\nDéplacement moyen ${r.mean.toFixed(1).replace('.', ',')} m, maximum ${r.max.toFixed(1).replace('.', ',')} m${r.outliers ? `\n${r.outliers} point(s) très écarté(s) ignoré(s) pour tracer la ligne` : ''}.\nAppliquer ?`)) return false;
+      const ref = r.anchors ? `\nArbres de référence (immobiles) : ${r.anchors.map(t => t.name).join(' et ')}` : '';
+      if (!confirm(`Rangée « ${row} » : ${r.items.length} arbre(s) à positionner${r.added ? ` (dont ${r.added} sans position)` : ''}${sp}.${ref}\nDéplacement moyen ${r.mean.toFixed(1).replace('.', ',')} m, maximum ${r.max.toFixed(1).replace('.', ',')} m${r.outliers ? `\n${r.outliers} point(s) très écarté(s) ignoré(s) pour tracer la ligne` : ''}.\nAppliquer ?`)) return false;
       MAPUI.undo = { row, items: r.items.map(i => ({ id: i.t.id, lat: i.t.lat, lng: i.t.lng, acc: i.t.gpsAcc, was: i.was })) };
       r.items.forEach(i => setPos(i.t, i.lat, i.lng, null));
       save(); drawMarkers(); refreshPanel(); toast(`Rangée « ${row} » alignée`);
     }
   });
+  $('#rowsel').addEventListener('change', e => { const f = refs(e.target.value); $('#rowa').innerHTML = refOpts(e.target.value, f[0] && f[0].id); $('#rowb').innerHTML = refOpts(e.target.value, f.length && f[f.length - 1].id); });
 }
 function undoAlign() {
   const u = MAPUI.undo; if (!u) return;
