@@ -567,7 +567,8 @@ function syncCard() {
   const st = Sync.status;
   if (st === 'nosdk') return '<p class="small muted">Module Firebase non chargé (connexion nécessaire au premier lancement). Mode local uniquement.</p>';
   if (!Sync.user) return '<p class="small muted">Connectez-vous pour partager les données entre vos appareils et avec les personnes autorisées. Sans connexion, l’appli reste utilisable en local.</p><button class="btn primary block" data-act="syncLogin">Se connecter</button>';
-  const msg = st === 'ok' ? '✅ À jour' : st === 'error' ? '⚠️ ' + esc(Sync.err) : '⏳ Synchronisation… (en attente du réseau si hors ligne)';
+  const pend = Sync.ready ? syncPending() : 0;
+  const msg = st === 'ok' ? (pend ? `⏳ ${pend} modification(s) en attente d’envoi` : '✅ À jour — tout est confirmé par le serveur') : st === 'error' ? '⚠️ ' + esc(Sync.err) : '⏳ Synchronisation… (en attente du réseau si hors ligne)';
   return `<div>${esc(Sync.user.email)}</div><div class="small" style="margin:4px 0 10px">${msg}</div><button class="btn block" data-act="syncLogout">Se déconnecter</button>`;
 }
 function viewMore() {
