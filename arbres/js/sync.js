@@ -15,6 +15,8 @@ async function syncInit() {
   try {
     if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
     Sync.auth = firebase.auth(); Sync.fs = firebase.firestore();
+    // Safari/iOS : certains réseaux bloquent le canal WebChannel de Firestore → bascule automatique en « long polling »
+    try { Sync.fs.settings({ experimentalAutoDetectLongPolling: true, merge: true }); } catch (e) { /* ignoré */ }
     try { await Sync.fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* plusieurs onglets / navigateur non supporté : on continue */ }
     Sync.auth.onAuthStateChanged(u => { Sync.user = u; if (u) syncStart(); else syncStop(); if (typeof render === 'function') render(); });
   } catch (e) { Sync.status = 'error'; Sync.err = e.message; }
@@ -25,13 +27,15 @@ async function syncLogout() { await Sync.auth.signOut(); }
 async function syncStart() {
   syncStop();
   Sync.on = true; Sync.ready = false; Sync.status = 'sync'; Sync.err = '';
+  Sync.t0 = Date.now(); clearTimeout(Sync.slow); Sync.slow = setTimeout(() => { if (Sync.on && !Sync.ready) setStatus('sync'); }, 20000);
   const key = 'synced:' + Sync.user.uid;
   const saved = (await DB.get('kv', key)) || {};
   COLS.forEach(c => { Sync.inflight[c] = {}; Sync.synced[c] = saved[c] || {}; Sync.seen[c] = false; Sync.firstSnap[c] = false; });
   Sync.photoSynced = new Set(saved.photos || []); Sync.key = key;
   COLS.forEach(c => Sync.unsub.push(Sync.fs.collection(cname(c)).onSnapshot(snap => applyRemote(c, snap), e => setStatus('error', e.code === 'permission-denied' ? 'Accès refusé par les règles Firestore (e-mail non autorisé ou règles non publiées).' : e.message))));
 }
-function syncStop() { Sync.unsub.forEach(f => f()); Sync.unsub = []; Sync.on = false; Sync.ready = false; Sync.status = 'off'; }
+function syncRetry() { if (Sync.user) syncStart(); }
+function syncStop() { clearTimeout(Sync.slow); Sync.unsub.forEach(f => f()); Sync.unsub = []; Sync.on = false; Sync.ready = false; Sync.status = 'off'; }
 
 function applyRemote(c, snap) {
   if (!S) return;
