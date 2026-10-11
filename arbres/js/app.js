@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v6';
+const APP_VERSION = 'v7';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -111,6 +111,17 @@ const treeLabel = t => t ? t.name : '(arbre supprimé)';
 const treeFull = t => [t.type, t.variety].filter(Boolean).join(' · ');
 const age = t => (t.year ? new Date().getFullYear() - t.year : null);
 const STATUS = { bon: ['Bonne santé', ''], surveiller: ['À surveiller', 'warn'], malade: ['Malade', 'danger'], mort: ['Mort / retiré', 'grey'] };
+
+const isFigType = t => norm(t).startsWith('figuier');
+const hasTwoCrops = f => !!f && (f.bearing === 'bifere' || !!f.bacour);
+// Charge en fruits : dernier constat de chaque année (et de chaque récolte pour les figuiers bifères)
+function fruitByYear(treeId) {
+  const out = {};
+  S.logs.filter(l => l.treeId === treeId && l.kind === 'constat' && l.fruit != null).sort((a, b) => a.date.localeCompare(b.date))
+    .forEach(l => { ((out[l.date.slice(0, 4)] ||= {})[l.crop || ''] = l.fruit); });
+  return out;
+}
+const lvlFR = v => v.toFixed(1).replace('.', ',');
 
 function findFiches(type, variety) {
   const exact = S.registry.find(f => norm(f.type) === norm(type) && norm(f.variety) === norm(variety));
@@ -239,6 +250,7 @@ function selNew(name, label, opts, cur, empty) {
 }
 const selVal = (fd, n) => (fd.get(n) === '__new' ? fieldVal(fd, n + '_new') : fieldVal(fd, n));
 const varietiesOf = type => [...new Set([...S.registry.filter(f => norm(f.type) === norm(type) && f.variety).map(f => f.variety), ...S.trees.filter(x => norm(x.type) === norm(type) && x.variety).map(x => x.variety)])].sort();
+function toggleFig(form) { const box = $('#fig-fields', form); if (box) box.classList.toggle('hide', !isFigType(selVal(new FormData(form), 'type'))); }
 function refreshVarieties(form) {
   const sel = form.elements.variety; if (!sel || sel.tagName !== 'SELECT') return;
   const type = selVal(new FormData(form), 'type'), cur = sel.value;
@@ -301,6 +313,8 @@ function logForm(treeId, log, kind) {
     <div class="g2"><label class="f">Date<input type="date" name="date" value="${log.date}" required></label>
     <label class="f">Type<select name="kind">${Object.entries(LOG_KINDS).map(([k, v]) => opt(k, v.i + ' ' + v.l, log.kind)).join('')}</select></label></div>
     <label class="f">Description<textarea name="text" placeholder="Observation, travail réalisé…">${esc(log.text)}</textarea></label>
+    <label class="f" data-kinds="constat">🍎 Quantité de fruits<select name="fruit"><option value="">— Non renseignée —</option>${LEVELS.map((n, i) => opt(i, n, log.fruit ?? '')).join('')}</select></label>
+    ${hasTwoCrops(t && ficheOf(t)) ? `<label class="f" data-kinds="constat">Récolte concernée<select name="crop"><option value="">—</option>${Object.entries(CROPS).map(([k, v]) => opt(k, v, log.crop)).join('')}</select></label>` : ''}
     <label class="f" data-kinds="recolte">Quantité récoltée (kg)<input name="qty_kg" inputmode="decimal" value="${log.kind === 'recolte' ? log.qty ?? '' : ''}"></label>
     ${t && /olivier/i.test(norm(t.type)) ? `<label class="f" data-kinds="recolte">Huile obtenue (L) — optionnel<input name="oil" inputmode="decimal" value="${log.oil ?? ''}"></label>` : ''}
     <label class="f" data-kinds="irrigation">Eau apportée (litres)<input name="qty_l" inputmode="decimal" value="${log.kind === 'irrigation' ? log.qty ?? '' : ''}"></label>
@@ -314,7 +328,7 @@ function logForm(treeId, log, kind) {
       if (k === 'recolte') { const d = darUntil(t); if (d && d.date > fd.get('date') && !confirm(`⚠️ Délai avant récolte en cours jusqu’au ${fmtDate(d.date)} (${d.product || 'traitement'}). Enregistrer quand même ?`)) return false; }
       const obj = isNew ? { id: uid(), treeId } : log;
       Object.assign(obj, { date: fd.get('date'), kind: k, text: fieldVal(fd, 'text'), product: fieldVal(fd, 'product'), dar: k === 'traitement' ? parseInt(fd.get('dar')) || 0 : 0,
-        oil: k === 'recolte' ? num(fd.get('oil')) : null, qty: k === 'recolte' ? num(fd.get('qty_kg')) : k === 'irrigation' ? num(fd.get('qty_l')) : null });
+        oil: k === 'recolte' ? num(fd.get('oil')) : null, fruit: k === 'constat' && fd.get('fruit') !== '' ? +fd.get('fruit') : null, crop: k === 'constat' ? fieldVal(fd, 'crop') : '', qty: k === 'recolte' ? num(fd.get('qty_kg')) : k === 'irrigation' ? num(fd.get('qty_l')) : null });
       obj.photoId = await formPhoto(fd, log.photoId);
       if (isNew) S.logs.push(obj);
       save(); render(); toast('Enregistré');
@@ -378,6 +392,12 @@ function ficheForm(f, prefill) {
     <div class="g2">${selNew('type', 'Type', types, f.type, '— Choisir —')}<label class="f">Variété (vide = fiche générale du type)<input name="variety" value="${esc(f.variety)}"></label></div>
     <p class="muted small">Les champs laissés vides héritent de la fiche générale du type.</p>
     ${ta('exposition', 'Exposition')}${ta('sol', 'Sol')}${ta('arrosage', 'Besoins en eau')}${ta('plantation', 'Plantation / écartement')}${ta('taille', 'Taille')}${ta('fertilisation', 'Fertilisation')}${ta('sante', 'Maladies & ravageurs')}${ta('remarques', 'Remarques')}
+    <div id="fig-fields" class="${isFigType(f.type) ? '' : 'hide'}"><h3>🌿 Particularités du figuier</h3>
+      <label class="f">Type de figuier<select name="figType"><option value="">— Non renseigné —</option>${Object.entries(FIG_TYPES).map(([k, v]) => opt(k, v, f.figType)).join('')}</select></label>
+      <label class="f">Production<select name="bearing"><option value="">— Non renseignée —</option>${Object.entries(FIG_BEARING).map(([k, v]) => opt(k, v, f.bearing)).join('')}</select></label>
+      <label class="f" style="color:var(--text)"><input type="checkbox" name="bacour" style="width:auto"${f.bacour ? ' checked' : ''}> Produit une 1re récolte (Bacour / figues-fleurs)</label>
+      <label class="f">Pollinisation<select name="capri"><option value="">— Non renseignée —</option>${Object.entries(FIG_CAPRI).map(([k, v]) => opt(k, v, f.capri)).join('')}</select></label>
+      <p class="muted small">Repères : Commun = autofertile ; Smyrne = caprification nécessaire ; San Pedro = caprification pour la 2e récolte seulement.</p></div>
     <h3>🌸 Floraison</h3>${monthChecks('floraison', f.floraison)}
     <h3>🧺 Période de récolte</h3>${monthChecks('recolte', f.recolte)}
     <h3>🗓️ Plan annuel type</h3><div id="plan-rows">${(f.plan || []).map(planRow).join('')}</div>
@@ -391,6 +411,7 @@ function ficheForm(f, prefill) {
       const o = isNew ? { id: uid() } : f;
       Object.assign(o, { type, variety: fieldVal(fd, 'variety') });
       for (const k of ['exposition', 'sol', 'arrosage', 'plantation', 'taille', 'fertilisation', 'sante', 'remarques']) o[k] = fieldVal(fd, k);
+      if (isFigType(type)) { o.figType = fieldVal(fd, 'figType'); o.bearing = fieldVal(fd, 'bearing'); o.bacour = !!fd.get('bacour'); o.capri = fieldVal(fd, 'capri'); }
       o.floraison = fd.getAll('floraison').map(Number); o.recolte = fd.getAll('recolte').map(Number);
       const pm = fd.getAll('pm'), pt = fd.getAll('pt'), pl = fd.getAll('pl');
       o.plan = pm.map((m, i) => ({ month: +m, type: pt[i], label: (pl[i] || '').trim() || TASK_TYPES[pt[i]].l })).sort((a, b) => a.month - b.month);
@@ -478,6 +499,7 @@ function viewTree(id) {
     body = `<div class="card"><div class="small">Plantation : <b>${t.year || '?'}</b>${a != null ? ` (${a} an${a > 1 ? 's' : ''})` : ''}<br>Zone : <b>${esc(t.zone || '—')}</b>${t.lat != null && t.lng != null ? ` · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${t.lat},${t.lng}">📍 Carte</a>` : ''}</div>${t.notes ? `<p style="white-space:pre-wrap">${esc(t.notes)}</p>` : ''}</div>
       <h2>📚 Fiche technique <button class="btn sm right" data-act="openFiche" data-type="${esc(t.type)}" data-var="${esc(t.variety)}">${f?._exact || (!t.variety && f) ? 'Modifier' : f ? 'Créer la fiche variété' : 'Créer la fiche'}</button></h2>
       ${f ? `<div class="card">${f.floraison?.length ? `<div class="small">🌸 Floraison : ${f.floraison.map(m => MONTHS[m - 1]).join(', ')}</div>` : ''}${f.recolte?.length ? `<div class="small">🧺 Récolte : ${f.recolte.map(m => MONTHS[m - 1]).join(', ')}</div>` : ''}
+        ${isFigType(t.type) && (f.figType || f.bearing || f.capri || f.bacour) ? `<div style="margin:6px 0">${f.figType ? `<span class="badge">${FIG_TYPES[f.figType]}</span>` : ''}${f.bearing ? `<span class="badge">${f.bearing === 'bifere' ? 'Bifère' : 'Unifère'}</span>` : ''}${f.bacour ? '<span class="badge">1re récolte (Bacour)</span>' : ''}${f.capri ? `<span class="badge warn">${FIG_CAPRI[f.capri]}</span>` : ''}</div>` : ''}
         ${sec('☀️ Exposition', f.exposition)}${sec('🪨 Sol', f.sol)}${sec('💧 Besoins en eau', f.arrosage)}${sec('📏 Plantation', f.plantation)}${sec('✂️ Taille', f.taille)}${sec('🧪 Fertilisation', f.fertilisation)}${sec('🐛 Maladies & ravageurs', f.sante)}${sec('📝 Remarques', f.remarques)}</div>
         <p class="muted small">Fiche indicative : à adapter à votre microclimat. Vérifiez toujours les produits homologués et les délais avant récolte sur l’étiquette.</p>`
         : `<div class="empty">Aucune fiche pour « ${esc(t.type)} ». Créez-la dans le registre.</div>`}
@@ -487,7 +509,7 @@ function viewTree(id) {
     const L = ui.logFilter ? logs.filter(l => l.kind === ui.logFilter) : logs;
     body = `<div class="tabs"><button class="${!ui.logFilter ? 'on' : ''}" data-act="logFilter" data-v="">Tout</button>${Object.entries(LOG_KINDS).map(([k, v]) => `<button class="${ui.logFilter === k ? 'on' : ''}" data-act="logFilter" data-v="${k}">${v.i} ${v.l}</button>`).join('')}</div>
       <button class="btn primary block" data-act="newLog" data-id="${id}">+ Nouvelle entrée</button>
-      <div class="card">${L.length ? L.map(l => `<div class="log" data-act="editLog" data-id="${l.id}"><div class="ic">${LOG_KINDS[l.kind].i}</div><div class="col"><div class="small muted">${fmtDate(l.date)} · ${LOG_KINDS[l.kind].l}${l.qty != null ? ` · ${l.qty} ${l.kind === 'recolte' ? 'kg' : 'L'}` : ''}</div><div style="white-space:pre-wrap">${esc(l.text)}</div>${l.product ? `<div class="small muted">🧴 ${esc(l.product)}${l.dar ? ` · DAR ${l.dar} j` : ''}</div>` : ''}</div>${l.photoId ? `<img data-photo="${l.photoId}" alt="">` : ''}</div>`).join('') : '<span class="muted">Aucune entrée.</span>'}</div>`;
+      <div class="card">${L.length ? L.map(l => `<div class="log" data-act="editLog" data-id="${l.id}"><div class="ic">${LOG_KINDS[l.kind].i}</div><div class="col"><div class="small muted">${fmtDate(l.date)} · ${LOG_KINDS[l.kind].l}${l.qty != null ? ` · ${l.qty} ${l.kind === 'recolte' ? 'kg' : 'L'}` : ''}${l.fruit != null ? ` · 🍎 <b style="color:${LEVEL_COLORS[l.fruit]}">${LEVELS[l.fruit]}</b>${l.crop ? ' (' + CROPS[l.crop] + ')' : ''}` : ''}</div><div style="white-space:pre-wrap">${esc(l.text)}</div>${l.product ? `<div class="small muted">🧴 ${esc(l.product)}${l.dar ? ` · DAR ${l.dar} j` : ''}</div>` : ''}</div>${l.photoId ? `<img data-photo="${l.photoId}" alt="">` : ''}</div>`).join('') : '<span class="muted">Aucune entrée.</span>'}</div>`;
   } else if (ui.treeTab === 'taches') {
     const tk = S.tasks.filter(x => x.treeId === id), op = tk.filter(x => !x.done).sort((p, q) => p.date.localeCompare(q.date)), dn = tk.filter(x => x.done).sort((p, q) => (q.doneDate || '').localeCompare(p.doneDate || '')).slice(0, 15);
     body = `<div class="row" style="margin-bottom:10px"><button class="btn primary col" data-act="newTaskFor" data-id="${id}">+ Tâche</button><button class="btn col" data-act="applyPlan" data-id="${id}">🗓️ Plan type</button></div>
@@ -503,7 +525,12 @@ function viewTree(id) {
     const hv = logs.filter(l => l.kind === 'recolte' && l.qty), by = {};
     const oil = {}; hv.forEach(l => { const y = l.date.slice(0, 4); by[y] = (by[y] || 0) + l.qty; if (l.oil) { oil[y] = oil[y] || { l: 0, kg: 0 }; oil[y].l += l.oil; oil[y].kg += l.qty; } });
     const ys = Object.keys(by).sort().reverse(), mx = Math.max(1, ...Object.values(by));
-    body = `<button class="btn primary block" data-act="newLog" data-id="${id}" data-kind="recolte">+ Enregistrer une récolte</button>
+    const fy = fruitByYear(id), fYears = Object.keys(fy).sort().reverse();
+    const fruitBlock = `<h2>🍎 Charge en fruits par année</h2><button class="btn primary block" data-act="newLog" data-id="${id}" data-kind="constat">+ Constat de fruits</button>
+      <div class="card">${fYears.length ? fYears.map(y => Object.entries(fy[y]).sort().map(([c, v]) => `<div style="margin-bottom:8px"><div class="row"><b>${y}</b>${c ? `<span class="muted small">${CROPS[c]}</span>` : ''}<span class="right" style="color:${LEVEL_COLORS[v]};font-weight:600">${LEVELS[v]}</span></div><div class="bar" style="width:${(v + 1) / 7 * 100}%;background:${LEVEL_COLORS[v]}"></div></div>`).join('')).join('') : '<span class="muted">Aucun constat de fruits. Ajoutez un constat avec la quantité de fruits (idéalement avant la récolte).</span>'}</div>
+      <p class="muted small">Dernier constat de l’année retenu. Comparez les années pour repérer l’alternance.</p>
+      <h2>🧺 Quantités récoltées</h2>`;
+    body = fruitBlock + `<button class="btn primary block" data-act="newLog" data-id="${id}" data-kind="recolte">+ Enregistrer une récolte</button>
       <p class="muted small">Alternance : comparez les années, les oliviers produisent souvent beaucoup une année sur deux. Rendement huile = litres × 0,916 / kg.</p><div class="card">${ys.length ? ys.map(y => `<div style="margin-bottom:8px"><div class="row"><b>${y}</b><span class="right">${Math.round(by[y] * 10) / 10} kg${oil[y] ? ` · ${Math.round(oil[y].l * 10) / 10} L d’huile (≈ ${Math.round(oil[y].l * 0.916 / oil[y].kg * 1000) / 10} %)` : ''}</span></div><div class="bar" style="width:${by[y] / mx * 100}%"></div></div>`).join('') : '<span class="muted">Aucune récolte enregistrée.</span>'}</div>`;
   }
   return `<div class="row" style="margin-bottom:8px"><a href="#/arbres" class="btn sm">← Arbres</a><span class="right"></span><button class="btn sm" data-act="editTree" data-id="${id}">✏️</button></div>
@@ -576,6 +603,9 @@ function viewMore() {
   const y = new Date().getFullYear(), hv = {};
   S.logs.filter(l => l.kind === 'recolte' && l.qty).forEach(l => { const tr = treeById(l.treeId); if (!tr) return; const k = tr.type, yy = l.date.slice(0, 4); ((hv[k] ||= {})[yy] = (hv[k][yy] || 0) + l.qty); });
   const yrs = [...new Set(Object.values(hv).flatMap(o => Object.keys(o)))].sort().slice(-4);
+  const fr = {};
+  S.trees.forEach(tr => { const f = fruitByYear(tr.id); for (const yy of Object.keys(f)) ((fr[tr.type] ||= {})[yy] ||= []).push(Math.max(...Object.values(f[yy]))); });
+  const fYrs = [...new Set(Object.values(fr).flatMap(o => Object.keys(o)))].sort().slice(-4);
   return `<h1>⚙️ Plus</h1>
     <h2>☁️ Synchronisation</h2><div class="card">${syncCard()}</div>
     <h2>💾 Sauvegarde</h2><div class="card"><p class="small muted">Les données sont stockées uniquement sur cet appareil. Sauvegardez régulièrement (fichier JSON avec photos) et gardez-le ailleurs (Drive, e-mail…).${S.settings.lastBackup ? '<br>Dernière : ' + fmtDate(S.settings.lastBackup) : ''}</p>
@@ -583,6 +613,7 @@ function viewMore() {
     <label class="btn block" style="cursor:pointer">⬆️ Restaurer une sauvegarde<input type="file" id="imp" accept=".json,application/json" hidden></label></div>
     <h2>🔔 Rappels sur le téléphone</h2><div class="card"><p class="small muted">Exporte les tâches et périodes de récolte en fichier calendrier (.ics) à ouvrir avec Google Agenda / Apple Calendrier : notification la veille à 9 h, répétitions annuelles incluses. À refaire après avoir ajouté de nouvelles tâches.</p><button class="btn block" data-act="ics">📅 Exporter vers mon agenda (.ics)</button></div>
     <h2>📈 Récoltes (kg) par type</h2><div class="card">${yrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${yrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(hv).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${yrs.map(a => `<td>${hv[k][a] ? Math.round(hv[k][a] * 10) / 10 : '—'}</td>`).join('')}</tr>`).join('')}</table>` : '<span class="muted">Aucune récolte saisie.</span>'}</div>
+    <h2>🍎 Charge en fruits moyenne (0–6)</h2><div class="card">${fYrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${fYrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(fr).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${fYrs.map(a => { const v = fr[k][a]; if (!v) return '<td>—</td>'; const m = v.reduce((p, q) => p + q, 0) / v.length; return `<td><b style="color:${LEVEL_COLORS[Math.round(m)]}">${lvlFR(m)}</b> <span class="muted">(${v.length})</span></td>`; }).join('')}</tr>`).join('')}</table><p class="muted small">0 = pas de fruits … 6 = énormément. Entre parenthèses : nombre d’arbres avec un constat.</p>` : '<span class="muted">Aucun constat de fruits.</span>'}</div>
     <h2>🛠️ Données</h2><div class="card"><button class="btn block" data-act="mergeDefaults">Ajouter les fiches par défaut manquantes</button><button class="btn danger block" data-act="wipe">Tout effacer</button></div>
     <p class="muted small" style="text-align:center">Mes Arbres · version ${APP_VERSION} · fonctionne hors-ligne · ${y}</p>`;
 }
@@ -681,7 +712,7 @@ document.addEventListener('change', e => {
     const f = e.target.form, n = e.target.dataset.new;
     f.elements[n + '_new'].classList.toggle('hide', e.target.value !== '__new');
     if (e.target.value === '__new') f.elements[n + '_new'].focus();
-    if (n === 'type') refreshVarieties(f);
+    if (n === 'type') { refreshVarieties(f); toggleFig(f); }
   }
   if (e.target.matches('select[data-pick]')) { const k = e.target.dataset.pick, v = e.target.value; if (v) $$('.checks label', e.target.form).forEach(l => { if (l.dataset[k] === v) $('input', l).checked = true; }); e.target.value = ''; updPick(e.target.form); }
   if (e.target.name === 'trees') updPick(e.target.form);
@@ -689,7 +720,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'imp' && e.target.files[0]) importBackup(e.target.files[0]).catch(err => toast('Erreur : ' + err.message)).finally(() => (e.target.value = ''));
 });
 document.addEventListener('input', e => {
-  if (e.target.name === 'type_new') refreshVarieties(e.target.form);
+  if (e.target.name === 'type_new') { refreshVarieties(e.target.form); toggleFig(e.target.form); }
   if (e.target.id === 'q') { ui.q = e.target.value; $('#tlist').innerHTML = treeList(); hydrate($('#tlist')); }
   if (e.target.id === 'rq') { ui.regQ = e.target.value; const pos = e.target.selectionStart; render(); const i = $('#rq'); i.focus(); i.setSelectionRange(pos, pos); }
 });
