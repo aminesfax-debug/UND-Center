@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v7';
+const APP_VERSION = 'v8';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -469,6 +469,7 @@ function viewHome() {
 function viewTrees() {
   const types = [...new Set(S.trees.map(t => t.type))].sort(), zones = [...new Set(S.trees.map(t => t.zone).filter(Boolean))].sort();
   return `<h1>🌳 Arbres <span class="muted small">(${S.trees.length})</span></h1>
+    <div class="tabs"><button class="on">☰ Liste</button><button data-act="goPlan">🗺️ Plan</button></div>
     <input id="q" type="search" placeholder="Rechercher (nom, type, variété, zone)…" value="${esc(ui.q)}" style="margin-bottom:8px">
     <div class="tabs"><button data-act="fType" data-v="" class="${!ui.fType ? 'on' : ''}">Tous</button>${types.map(x => `<button data-act="fType" data-v="${esc(x)}" class="${ui.fType === x ? 'on' : ''}">${esc(x)}</button>`).join('')}</div>
     ${zones.length ? `<div class="tabs"><button data-act="fZone" data-v="" class="${!ui.fZone ? 'on' : ''}">Toutes zones</button>${zones.map(x => `<button data-act="fZone" data-v="${esc(x)}" class="${ui.fZone === x ? 'on' : ''}">${esc(x)}</button>`).join('')}</div>` : ''}
@@ -496,7 +497,7 @@ function viewTree(id) {
   const logs = S.logs.filter(l => l.treeId === id).sort((x, y) => y.date.localeCompare(x.date));
   if (ui.treeTab === 'fiche') {
     const sec = (l, v) => !isEmpty(v) ? `<details><summary>${l}</summary><p>${esc(v)}</p></details>` : '';
-    body = `<div class="card"><div class="small">Plantation : <b>${t.year || '?'}</b>${a != null ? ` (${a} an${a > 1 ? 's' : ''})` : ''}<br>Zone : <b>${esc(t.zone || '—')}</b>${t.lat != null && t.lng != null ? ` · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${t.lat},${t.lng}">📍 Carte</a>` : ''}</div>${t.notes ? `<p style="white-space:pre-wrap">${esc(t.notes)}</p>` : ''}</div>
+    body = `<div class="card"><div class="small">Plantation : <b>${t.year || '?'}</b>${a != null ? ` (${a} an${a > 1 ? 's' : ''})` : ''}<br>Zone : <b>${esc(t.zone || '—')}</b>${t.lat != null && t.lng != null ? ` · <a href="#/plan/${t.id}">🗺️ Voir sur le plan</a> · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${t.lat},${t.lng}">📍 Itinéraire</a>` : ''}</div>${t.notes ? `<p style="white-space:pre-wrap">${esc(t.notes)}</p>` : ''}</div>
       <h2>📚 Fiche technique <button class="btn sm right" data-act="openFiche" data-type="${esc(t.type)}" data-var="${esc(t.variety)}">${f?._exact || (!t.variety && f) ? 'Modifier' : f ? 'Créer la fiche variété' : 'Créer la fiche'}</button></h2>
       ${f ? `<div class="card">${f.floraison?.length ? `<div class="small">🌸 Floraison : ${f.floraison.map(m => MONTHS[m - 1]).join(', ')}</div>` : ''}${f.recolte?.length ? `<div class="small">🧺 Récolte : ${f.recolte.map(m => MONTHS[m - 1]).join(', ')}</div>` : ''}
         ${isFigType(t.type) && (f.figType || f.bearing || f.capri || f.bacour) ? `<div style="margin:6px 0">${f.figType ? `<span class="badge">${FIG_TYPES[f.figType]}</span>` : ''}${f.bearing ? `<span class="badge">${f.bearing === 'bifere' ? 'Bifère' : 'Unifère'}</span>` : ''}${f.bacour ? '<span class="badge">1re récolte (Bacour)</span>' : ''}${f.capri ? `<span class="badge warn">${FIG_CAPRI[f.capri]}</span>` : ''}</div>` : ''}
@@ -731,17 +732,18 @@ function render() {
   const parts = (location.hash.slice(1) || '/').split('/').filter(Boolean), r = parts[0] || 'home';
   let html;
   if (r === 'arbres') html = viewTrees(); else if (r === 'arbre') html = viewTree(parts[1]); else if (r === 'calendrier') html = viewCalendar();
-  else if (r === 'registre') html = viewRegistry(); else if (r === 'plus') html = viewMore(); else html = viewHome();
+  else if (r === 'registre') html = viewRegistry(); else if (r === 'plus') html = viewMore(); else if (r === 'plan') html = viewPlan(parts[1]); else html = viewHome();
   const y = window.scrollY;
   $('#view').innerHTML = html;
-  const nav = r === 'arbre' ? 'arbres' : r;
+  const nav = r === 'arbre' || r === 'plan' ? 'arbres' : r;
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.nav === nav));
   hydrate($('#view'));
+  if (r === 'plan') initMap(); else if (typeof destroyMap === 'function') destroyMap();
   if (render.last === location.hash) window.scrollTo(0, y); else window.scrollTo(0, 0);
   render.last = location.hash;
 }
 window.addEventListener('hashchange', () => { closeSheet(); render(); });
-(async function init() {
+async function init() {
   try { await DB.open(); await loadState(); } catch (e) { $('#view').innerHTML = `<div class="empty">Stockage indisponible : ${esc(e.message)}<br>Désactivez la navigation privée.</div>`; return; }
   render();
   syncInit();
@@ -755,4 +757,5 @@ window.addEventListener('hashchange', () => { closeSheet(); render(); });
       if ($('#sheet').hidden) { reloading = true; location.reload(); } else toast('Mise à jour disponible — fermez puis rouvrez l’appli');
     });
   }
-})();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
