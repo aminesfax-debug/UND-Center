@@ -6,10 +6,12 @@ let MAP = null, MARKERS = null, BASE = null, ME = null, WATCH = null, GPS = null
 
 const TYPE_PALETTE = ['#2f8f4f', '#d9822b', '#7a5cc2', '#2a8fbd', '#c9484a', '#a0a830', '#c2569b', '#5b6b7b', '#8a5a2b', '#1f9e8f'];
 const natCmp = (a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true });
+// ordre de parcours : par rangée, puis n° dans la rangée, puis nom
+const walkCmp = (a, b) => (a.row || '\uffff').localeCompare(b.row || '\uffff', 'fr', { numeric: true }) || (a.pos || 1e9) - (b.pos || 1e9) || natCmp(a, b);
 const hasPos = t => t.lat != null && t.lng != null && isFinite(t.lat) && isFinite(t.lng);
 const typesList = () => [...new Set(S.trees.map(t => t.type))].sort();
 const typeColor = type => TYPE_PALETTE[Math.max(0, typesList().indexOf(type)) % TYPE_PALETTE.length];
-const unplaced = () => S.trees.filter(alive).filter(t => !hasPos(t)).sort(natCmp);
+const unplaced = () => S.trees.filter(alive).filter(t => !hasPos(t)).sort(walkCmp);
 
 function markerColor(t) {
   if (MAPUI.layer === 'sante') return { bon: '#2f8f4f', surveiller: '#e0a21e', malade: '#d64545', mort: '#7b8580' }[t.status] || '#7b8580';
@@ -39,7 +41,7 @@ function viewPlan(focusId) {
 function panelHTML() {
   const un = unplaced(), placed = S.trees.filter(hasPos).length;
   const tgt = treeById(MAPUI.target) || un[0];
-  const opts = (un.length ? un : []).concat(tgt && hasPos(tgt) ? [tgt] : []).map(t => opt(t.id, t.name + (hasPos(t) ? ' (placé)' : ''), tgt && tgt.id)).join('');
+  const opts = (un.length ? un : []).concat(tgt && hasPos(tgt) ? [tgt] : []).map(t => opt(t.id, t.name + (t.row ? ` — ${t.row}${t.pos ? ' n°' + t.pos : ''}` : '') + (hasPos(t) ? ' (placé)' : ''), tgt && tgt.id)).join('');
   let h = `<div class="small muted" style="margin:4px 0 8px">${placed} arbre(s) placé(s) · <b>${un.length}</b> sans position</div>`;
   if (MAPUI.mode === 'survey' && tgt) {
     h += `<div class="card"><b>🧭 Relevé GPS</b><p class="small muted" style="margin:4px 0 8px">Placez-vous au pied de l’arbre, attendez une précision correcte, puis enregistrez.</p>
@@ -55,7 +57,8 @@ function panelHTML() {
       <button class="btn sm col${MAPUI.edit ? ' primary' : ''}" data-act="mapEdit">${MAPUI.edit ? '✓ Fin déplacement' : '✋ Déplacer des arbres'}</button></div>
       <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><button class="btn sm col" data-act="mapSurvey"${un.length ? '' : ' disabled'}>🧭 Relevé GPS</button>
       <button class="btn sm col" data-act="mapPlace"${un.length ? '' : ' disabled'}>👆 Placer sur la carte</button>
-      <button class="btn sm col" data-act="mapRow">↔️ Rangée</button></div>
+      <button class="btn sm col" data-act="mapRow">↔️ Compléter rangée</button></div>
+      <div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapAssign">📋 Définir une rangée</button></div>
       ${MAPUI.edit ? '<p class="small muted">Maintenez et glissez un point pour corriger sa position.</p>' : ''}`;
   }
   return h;
@@ -143,7 +146,7 @@ function locate(quiet) {
 // ── Placement ──
 function nextUnplaced(afterId) {
   const un = unplaced(); if (!un.length) return null;
-  const all = S.trees.filter(alive).sort(natCmp), i = all.findIndex(t => t.id === afterId);
+  const all = S.trees.filter(alive).sort(walkCmp), i = all.findIndex(t => t.id === afterId);
   for (let k = 1; k <= all.length; k++) { const t = all[(i + k) % all.length]; if (!hasPos(t)) return t.id; }
   return un[0].id;
 }
@@ -166,31 +169,55 @@ function recordHere() {
   setPos(t, GPS.lat, GPS.lng, GPS.acc); afterPlace(t);
 }
 
-// ── Rangée : positions intermédiaires par interpolation ──
+// ── Rangées : une rangée = un nom + un n° d'ordre par arbre (tous types mélangés possibles) ──
+const rowsList = () => [...new Set(S.trees.map(t => t.row).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+let ORDER = [];
+function updOrder() {
+  $$('#ordlist .ordi').forEach(el => { const k = ORDER.indexOf(el.dataset.id); el.classList.toggle('sel', k >= 0); $('.ordn', el).textContent = k >= 0 ? k + 1 : ''; });
+  const c = $('#ordcount'); if (c) c.textContent = `(${ORDER.length} choisi${ORDER.length > 1 ? 's' : ''})`;
+}
+function assignForm() {
+  ORDER = [];
+  const live = S.trees.filter(alive).sort(natCmp);
+  sheet('📋 Définir une rangée', `<p class="muted small">Donnez un nom à la rangée, puis <b>touchez les arbres dans l’ordre où ils se suivent</b> le long de la rangée (tous types mélangés possibles). Le 1er touché reçoit le n° de départ, le suivant +1, etc.</p>
+    ${selNew('row', 'Rangée', rowsList(), '', '— Choisir —')}
+    <label class="f">N° du 1er arbre touché<input name="start" type="number" min="1" value="1"></label>
+    <label class="f">Arbres <b id="ordcount"></b><input id="ordq" type="search" placeholder="Filtrer par nom, type…" style="margin-top:3px"></label>
+    <div class="checks" id="ordlist" style="max-height:280px">${live.map(t => `<div class="ordi" data-act="ordPick" data-id="${t.id}" data-q="${esc(norm(t.name + ' ' + treeFull(t) + ' ' + (t.row || '')))}"><span class="ordn"></span><span class="col">${esc(t.name)} <span class="muted small">${esc(treeFull(t))}${t.row ? ' · ' + esc(t.row) + (t.pos ? ' n°' + t.pos : '') : ''}</span></span></div>`).join('')}</div>`, {
+    submitLabel: 'Enregistrer la rangée',
+    onSubmit: fd => {
+      const row = selVal(fd, 'row'), start = parseInt(fd.get('start')) || 1;
+      if (!row) { toast('Donnez un nom à la rangée'); return false; }
+      if (!ORDER.length) { toast('Touchez au moins un arbre'); return false; }
+      ORDER.forEach((id, k) => { const t = treeById(id); t.row = row; t.pos = start + k; });
+      save(); refreshPanel(); toast(`${ORDER.length} arbre(s) dans la rangée « ${row} »`);
+    }
+  });
+  updOrder();
+}
 function rowForm() {
-  const placed = S.trees.filter(alive).filter(hasPos).sort(natCmp);
-  if (placed.length < 2) { toast('Placez d’abord au moins 2 arbres (début et fin de rangée)'); return; }
-  const o = placed.map(t => opt(t.id, t.name, '')).join('');
-  sheet('↔️ Compléter une rangée', `<p class="muted small">Choisissez le premier et le dernier arbre de la rangée (déjà placés). Les arbres du même type dont le numéro est entre les deux sont répartis à égale distance. Corrigez ensuite au doigt si la rangée n’est pas régulière.</p>
-    <label class="f">Premier arbre<select name="a">${o}</select></label><label class="f">Dernier arbre<select name="b">${o}</select></label>
+  const rows = rowsList().filter(r => S.trees.filter(t => t.row === r && hasPos(t) && t.pos).length >= 2);
+  if (!rows.length) { toast('Il faut une rangée avec au moins 2 arbres placés et numérotés'); return; }
+  const optsFor = r => S.trees.filter(t => t.row === r && hasPos(t) && t.pos).sort((a, b) => a.pos - b.pos).map(t => opt(t.id, `n°${t.pos} · ${t.name}`, '')).join('');
+  sheet('↔️ Compléter une rangée', `<p class="muted small">Choisissez la rangée, puis deux arbres déjà placés. Les arbres de la rangée dont le n° est entre les deux sont positionnés à égale distance (proportionnellement à leur n°). Corrigez ensuite au doigt si la rangée n’est pas régulière.</p>
+    <label class="f">Rangée<select name="row" id="rowsel">${rows.map(r => opt(r, r, '')).join('')}</select></label>
+    <label class="f">Premier arbre<select name="a" id="rowa">${optsFor(rows[0])}</select></label>
+    <label class="f">Dernier arbre<select name="b" id="rowb">${optsFor(rows[0])}</select></label>
     <label class="f" style="color:var(--text)"><input type="checkbox" name="over" style="width:auto"> Écraser les positions déjà enregistrées entre les deux</label>`, {
     submitLabel: 'Positionner',
     onSubmit: fd => {
       const A = treeById(fd.get('a')), B = treeById(fd.get('b'));
-      if (!A || !B || A.id === B.id) { toast('Choisissez deux arbres différents'); return false; }
-      const seq = S.trees.filter(alive).filter(t => t.type === A.type && norm(t.variety) === norm(A.variety)).sort(natCmp);
-      let i = seq.findIndex(t => t.id === A.id), j = seq.findIndex(t => t.id === B.id);
-      if (i < 0 || j < 0) { toast('Les deux arbres doivent avoir le même type et la même variété'); return false; }
-      const step = i < j ? 1 : -1, n = Math.abs(j - i) - 1;
-      if (n < 1) { toast('Aucun arbre entre les deux'); return false; }
-      const mid = []; for (let k = i + step; k !== j; k += step) mid.push(seq[k]);
+      if (!A || !B || A.id === B.id || A.pos === B.pos) { toast('Choisissez deux arbres de n° différents'); return false; }
+      const lo = Math.min(A.pos, B.pos), hi = Math.max(A.pos, B.pos);
+      const mid = S.trees.filter(t => alive(t) && t.row === A.row && t.pos > lo && t.pos < hi);
       const todo = mid.filter(t => fd.get('over') || !hasPos(t));
-      if (!todo.length) { toast('Tous ont déjà une position'); return false; }
+      if (!todo.length) { toast(mid.length ? 'Tous ont déjà une position' : 'Aucun arbre entre ces deux n°'); return false; }
       if (!confirm(`Positionner ${todo.length} arbre(s) entre « ${A.name} » et « ${B.name} » ?`)) return false;
-      mid.forEach((t, k) => { if (todo.includes(t)) setPos(t, A.lat + (B.lat - A.lat) * (k + 1) / (n + 1), A.lng + (B.lng - A.lng) * (k + 1) / (n + 1), null); });
+      todo.forEach(t => { const k = (t.pos - A.pos) / (B.pos - A.pos); setPos(t, A.lat + (B.lat - A.lat) * k, A.lng + (B.lng - A.lng) * k, null); });
       save(); drawMarkers(); refreshPanel(); toast(`${todo.length} arbre(s) positionné(s)`);
     }
   });
+  $('#rowsel').addEventListener('change', e => { $('#rowa').innerHTML = $('#rowb').innerHTML = optsFor(e.target.value); });
 }
 
 Object.assign(actions, {
@@ -202,7 +229,14 @@ Object.assign(actions, {
   mapStop: () => { MAPUI.mode = null; refreshPanel(); },
   mapSkip: () => { MAPUI.target = nextUnplaced(MAPUI.target); refreshPanel(); },
   mapRecord: recordHere,
-  mapRow: rowForm
+  mapRow: rowForm,
+  mapAssign: assignForm,
+  ordPick: ({ id }) => { const k = ORDER.indexOf(id); if (k >= 0) ORDER.splice(k, 1); else ORDER.push(id); updOrder(); }
+});
+document.addEventListener('input', e => {
+  if (e.target.id !== 'ordq') return;
+  const q = norm(e.target.value);
+  $$('#ordlist .ordi').forEach(el => el.classList.toggle('hide', !!q && !el.dataset.q.includes(q)));
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset && e.target.dataset.map; if (!k) return;
