@@ -71,3 +71,7 @@ details{border-bottom:1px solid var(--border);padding:8px 0}details summary{font
 #map .lbl{display:none;font-size:11px;padding:1px 5px;border-radius:6px}
 #map.z19 .lbl{display:block}
 .row select{min-width:0;font-size:.85rem;padding:8px 6px}
+
+.ordi{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer}
+.ordn{flex:none;min-width:28px;height:28px;border-radius:14px;background:var(--border);text-align:center;line-height:28px;font-size:.8rem;font-weight:600}
+.ordi.sel .ordn{background:var(--accent);color:#fff}

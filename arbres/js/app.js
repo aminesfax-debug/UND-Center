@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v8';
+const APP_VERSION = 'v9';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -271,6 +271,8 @@ function treeForm(t) {
     <div class="g2"><label class="f">Année de plantation<input name="year" type="number" min="1900" max="2100" value="${t.year || ''}"></label>
     <label class="f">État de santé<select name="status">${Object.entries(STATUS).map(([k, v]) => opt(k, v[0], t.status)).join('')}</select></label></div>
     ${selNew('zone', 'Zone / emplacement', zones, t.zone, '— Aucune —')}
+    <div class="g2">${selNew('row', 'Rangée', [...new Set(S.trees.map(x => x.row).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true })), t.row, '— Aucune —')}
+    <label class="f">${isNew ? 'N° du 1er arbre dans la rangée' : 'N° dans la rangée'}<input name="pos" type="number" min="1" value="${t.pos ?? ''}" placeholder="ordre le long de la rangée"></label></div>
     <div class="g3"><label class="f">Latitude<input name="lat" value="${t.lat ?? ''}" inputmode="decimal"></label><label class="f">Longitude<input name="lng" value="${t.lng ?? ''}" inputmode="decimal"></label>
     <label class="f">&nbsp;<button type="button" class="btn" data-act="gps">📍 Ici</button></label></div>
     <h3>💧 Irrigation (jours entre deux arrosages — 0 = pas d’arrosage)</h3>
@@ -293,6 +295,7 @@ function treeForm(t) {
         name: count > 1 ? `${base} ${i}` : (fieldVal(fd, 'name') || `${base} #${S.trees.length + 1}`),
         type, variety: selVal(fd, 'variety'), year: parseInt(fd.get('year')) || null, status: fd.get('status'), zone: selVal(fd, 'zone'),
         lat: num(fd.get('lat')), lng: num(fd.get('lng')), notes: fieldVal(fd, 'notes'),
+        row: selVal(fd, 'row'), pos: selVal(fd, 'row') && parseInt(fd.get('pos')) ? parseInt(fd.get('pos')) + i - 1 : null,
         irrig: { summerDays: parseInt(fd.get('summerDays')) || 0, winterDays: parseInt(fd.get('winterDays')) || 0, litres: parseInt(fd.get('litres')) || 0 }
       });
       obj.photoId = i === 1 ? photoId : '';
@@ -497,7 +500,7 @@ function viewTree(id) {
   const logs = S.logs.filter(l => l.treeId === id).sort((x, y) => y.date.localeCompare(x.date));
   if (ui.treeTab === 'fiche') {
     const sec = (l, v) => !isEmpty(v) ? `<details><summary>${l}</summary><p>${esc(v)}</p></details>` : '';
-    body = `<div class="card"><div class="small">Plantation : <b>${t.year || '?'}</b>${a != null ? ` (${a} an${a > 1 ? 's' : ''})` : ''}<br>Zone : <b>${esc(t.zone || '—')}</b>${t.lat != null && t.lng != null ? ` · <a href="#/plan/${t.id}">🗺️ Voir sur le plan</a> · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${t.lat},${t.lng}">📍 Itinéraire</a>` : ''}</div>${t.notes ? `<p style="white-space:pre-wrap">${esc(t.notes)}</p>` : ''}</div>
+    body = `<div class="card"><div class="small">${t.row ? `Rangée : <b>${esc(t.row)}</b>${t.pos ? ' · n° <b>' + t.pos + '</b>' : ''}<br>` : ''}Plantation : <b>${t.year || '?'}</b>${a != null ? ` (${a} an${a > 1 ? 's' : ''})` : ''}<br>Zone : <b>${esc(t.zone || '—')}</b>${t.lat != null && t.lng != null ? ` · <a href="#/plan/${t.id}">🗺️ Voir sur le plan</a> · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q=${t.lat},${t.lng}">📍 Itinéraire</a>` : ''}</div>${t.notes ? `<p style="white-space:pre-wrap">${esc(t.notes)}</p>` : ''}</div>
       <h2>📚 Fiche technique <button class="btn sm right" data-act="openFiche" data-type="${esc(t.type)}" data-var="${esc(t.variety)}">${f?._exact || (!t.variety && f) ? 'Modifier' : f ? 'Créer la fiche variété' : 'Créer la fiche'}</button></h2>
       ${f ? `<div class="card">${f.floraison?.length ? `<div class="small">🌸 Floraison : ${f.floraison.map(m => MONTHS[m - 1]).join(', ')}</div>` : ''}${f.recolte?.length ? `<div class="small">🧺 Récolte : ${f.recolte.map(m => MONTHS[m - 1]).join(', ')}</div>` : ''}
         ${isFigType(t.type) && (f.figType || f.bearing || f.capri || f.bacour) ? `<div style="margin:6px 0">${f.figType ? `<span class="badge">${FIG_TYPES[f.figType]}</span>` : ''}${f.bearing ? `<span class="badge">${f.bearing === 'bifere' ? 'Bifère' : 'Unifère'}</span>` : ''}${f.bacour ? '<span class="badge">1re récolte (Bacour)</span>' : ''}${f.capri ? `<span class="badge warn">${FIG_CAPRI[f.capri]}</span>` : ''}</div>` : ''}
