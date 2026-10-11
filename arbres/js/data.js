@@ -17,6 +17,14 @@ const LOG_KINDS = {
   traitement: { l: 'Traitement', i: '🧴' },
   recolte:    { l: 'Récolte',    i: '🧺' }
 };
+// Échelle de charge en fruits (constat), de 0 à 6
+const LEVELS = ['Pas de fruits', 'Très peu', 'Peu', 'Moyen', 'Moyen plus', 'Beaucoup', 'Énormément'];
+const LEVEL_COLORS = ['#9aa5a0', '#c9b458', '#d9a441', '#9fbf4a', '#5fae52', '#2f8f4f', '#1b6a3a'];
+// Figuier : particularités variétales (fiches du registre)
+const FIG_TYPES = { commun: 'Commun', smyrne: 'Smyrne', san_pedro: 'San Pedro', caprifiguier: 'Caprifiguier (mâle)', autre: 'Autre' };
+const FIG_BEARING = { unifere: 'Unifère (une seule récolte)', bifere: 'Bifère (deux récoltes)' };
+const FIG_CAPRI = { autofertile: 'Autofertile (sans caprification)', caprification: 'Nécessite la caprification', capri2: 'Caprification pour la 2e récolte seulement' };
+const CROPS = { bacour: '1re récolte (Bacour)', principale: '2e récolte (figues d’automne)' };
 const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 
 const P = (m, t, l) => ({ month: m, type: t, label: l });
