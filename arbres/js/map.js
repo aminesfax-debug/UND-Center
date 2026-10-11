@@ -57,9 +57,10 @@ function panelHTML() {
       <button class="btn sm col${MAPUI.edit ? ' primary' : ''}" data-act="mapEdit">${MAPUI.edit ? '✓ Fin déplacement' : '✋ Déplacer des arbres'}</button></div>
       <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><button class="btn sm col" data-act="mapSurvey"${un.length ? '' : ' disabled'}>🧭 Relevé GPS</button>
       <button class="btn sm col" data-act="mapPlace"${un.length ? '' : ' disabled'}>👆 Placer sur la carte</button>
-      <button class="btn sm col" data-act="mapRow">↔️ Compléter rangée</button></div>
+      <button class="btn sm col" data-act="mapRow">↔️ Aligner une rangée</button></div>
       <div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapAssign">📋 Définir une rangée</button>
       <button class="btn sm col${MAPUI.rows ? ' primary' : ''}" data-act="mapRows">〰️ Traits de rangées : ${MAPUI.rows ? 'oui' : 'non'}</button></div>
+      ${MAPUI.undo ? `<div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapUndo">↩️ Annuler l’alignement de « ${esc(MAPUI.undo.row)} »</button></div>` : ''}
       <p class="small muted" style="margin:6px 0 0">Les traits relient les arbres d’une rangée dans l’ordre ; un trait <b style="color:#d64545">rouge pointillé</b> signale un écart anormal (souvent une erreur d’ordre ou un arbre mal placé).</p>
       ${MAPUI.edit ? '<p class="small muted">Maintenez et glissez un point pour corriger sa position.</p>' : ''}`;
   }
@@ -219,29 +220,68 @@ function assignForm() {
   });
   updOrder();
 }
+// ── Alignement automatique d'une rangée ──
+// Ajuste une droite (moindres carrés orthogonaux) sur les arbres déjà placés de la rangée, puis, avec les n°,
+// répartit régulièrement les arbres le long de cette droite. Les points aberrants sont écartés de l'ajustement
+// (mais ramenés sur la droite). Les arbres de la rangée sans position sont placés à leur emplacement théorique.
+const median = a => { const s = [...a].sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : 0; };
+function fitRow(pts) { // pts: [{x,y,pos}]
+  const n = pts.length, mx = pts.reduce((s, p) => s + p.x, 0) / n, my = pts.reduce((s, p) => s + p.y, 0) / n;
+  let sxx = 0, syy = 0, sxy = 0; pts.forEach(p => { sxx += (p.x - mx) ** 2; syy += (p.y - my) ** 2; sxy += (p.x - mx) * (p.y - my); });
+  const th = 0.5 * Math.atan2(2 * sxy, sxx - syy), dx = Math.cos(th), dy = Math.sin(th);
+  const sv = pts.map(p => (p.x - mx) * dx + (p.y - my) * dy), mp = pts.reduce((s, p) => s + p.pos, 0) / n, ms = sv.reduce((s, v) => s + v, 0) / n;
+  let cov = 0, vr = 0; pts.forEach((p, k) => { cov += (p.pos - mp) * (sv[k] - ms); vr += (p.pos - mp) ** 2; });
+  const b = vr ? cov / vr : 0; return { mx, my, dx, dy, a: ms - b * mp, b };
+}
+function planAlign(row, even, fill) {
+  const all = S.trees.filter(t => alive(t) && t.row === row && t.pos), placed = all.filter(hasPos);
+  if (placed.length < 2 || new Set(placed.map(t => t.pos)).size < 2) return { err: 'Il faut au moins 2 arbres placés avec des n° différents dans cette rangée.' };
+  const lat0 = placed.reduce((s, t) => s + t.lat, 0) / placed.length, lng0 = placed.reduce((s, t) => s + t.lng, 0) / placed.length;
+  const kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110540;
+  const P = t => ({ t, pos: t.pos, x: (t.lng - lng0) * kx, y: (t.lat - lat0) * ky });
+  const pp = placed.map(P); let inl = pp, fit = fitRow(inl);
+  for (let pass = 0; pass < 2 && pp.length >= 5; pass++) { // écarte les points aberrants de l'ajustement
+    const res = pp.map(p => { const sx = (p.x - fit.mx) * fit.dx + (p.y - fit.my) * fit.dy; return { perp: Math.abs(-(p.x - fit.mx) * fit.dy + (p.y - fit.my) * fit.dx), along: Math.abs(sx - (fit.a + fit.b * p.pos)) }; });
+    const mp = median(res.map(r => r.perp)), ma = median(res.map(r => r.along));
+    const keep = pp.filter((p, k) => res[k].perp <= 3 * mp + 1.5 && res[k].along <= 3 * ma + 1.5);
+    if (keep.length < 2 || new Set(keep.map(p => p.pos)).size < 2 || keep.length === inl.length) break;
+    inl = keep; fit = fitRow(inl);
+  }
+  const toLL = (s) => ({ lat: lat0 + (fit.my + s * fit.dy) / ky, lng: lng0 + (fit.mx + s * fit.dx) / kx });
+  const items = [], moves = [];
+  pp.forEach(p => {
+    const s = even ? fit.a + fit.b * p.pos : (p.x - fit.mx) * fit.dx + (p.y - fit.my) * fit.dy, q = toLL(s);
+    const nx = (q.lng - lng0) * kx, ny = (q.lat - lat0) * ky; moves.push(Math.hypot(nx - p.x, ny - p.y));
+    items.push({ t: p.t, lat: q.lat, lng: q.lng, was: true });
+  });
+  let added = 0;
+  if (fill) all.filter(t => !hasPos(t)).forEach(t => { const q = toLL(fit.a + fit.b * t.pos); items.push({ t, lat: q.lat, lng: q.lng, was: false }); added++; });
+  const spacing = Math.abs(fit.b);
+  return { items, added, mean: moves.reduce((s, v) => s + v, 0) / moves.length, max: Math.max(...moves), spacing, outliers: pp.length - inl.length };
+}
 function rowForm() {
-  const rows = rowsList().filter(r => S.trees.filter(t => t.row === r && hasPos(t) && t.pos).length >= 2);
-  if (!rows.length) { toast('Il faut une rangée avec au moins 2 arbres placés et numérotés'); return; }
-  const optsFor = r => S.trees.filter(t => t.row === r && hasPos(t) && t.pos).sort((a, b) => a.pos - b.pos).map(t => opt(t.id, `n°${t.pos} · ${t.name}`, '')).join('');
-  sheet('↔️ Compléter une rangée', `<p class="muted small">Choisissez la rangée, puis deux arbres déjà placés. Les arbres de la rangée dont le n° est entre les deux sont positionnés à égale distance (proportionnellement à leur n°). Corrigez ensuite au doigt si la rangée n’est pas régulière.</p>
-    <label class="f">Rangée<select name="row" id="rowsel">${rows.map(r => opt(r, r, '')).join('')}</select></label>
-    <label class="f">Premier arbre<select name="a" id="rowa">${optsFor(rows[0])}</select></label>
-    <label class="f">Dernier arbre<select name="b" id="rowb">${optsFor(rows[0])}</select></label>
-    <label class="f" style="color:var(--text)"><input type="checkbox" name="over" style="width:auto"> Écraser les positions déjà enregistrées entre les deux</label>`, {
-    submitLabel: 'Positionner',
+  const rows = rowsList();
+  if (!rows.length) { toast('Définissez d’abord une rangée (📋 Définir une rangée)'); return; }
+  sheet('↔️ Aligner une rangée', `<p class="muted small">Place les arbres de la rangée sur une <b>ligne droite</b> ajustée sur ceux que vous avez déjà positionnés (au moins 2), avec un espacement régulier selon leur n°. Les arbres sans position sont placés à leur emplacement théorique. Vous pourrez annuler.</p>
+    <label class="f">Rangée<select name="row">${rows.map(r => { const n = S.trees.filter(t => t.row === r && alive(t)).length, p = S.trees.filter(t => t.row === r && alive(t) && hasPos(t)).length; return `<option value="${esc(r)}">${esc(r)} — ${p} placé(s) / ${n}</option>`; }).join('')}</select></label>
+    <label class="f" style="color:var(--text)"><input type="checkbox" name="even" checked style="width:auto"> Espacer régulièrement selon le n° (sinon : seulement redresser sur la ligne)</label>
+    <label class="f" style="color:var(--text)"><input type="checkbox" name="fill" checked style="width:auto"> Positionner aussi les arbres de la rangée sans position</label>`, {
+    submitLabel: 'Aligner',
     onSubmit: fd => {
-      const A = treeById(fd.get('a')), B = treeById(fd.get('b'));
-      if (!A || !B || A.id === B.id || A.pos === B.pos) { toast('Choisissez deux arbres de n° différents'); return false; }
-      const lo = Math.min(A.pos, B.pos), hi = Math.max(A.pos, B.pos);
-      const mid = S.trees.filter(t => alive(t) && t.row === A.row && t.pos > lo && t.pos < hi);
-      const todo = mid.filter(t => fd.get('over') || !hasPos(t));
-      if (!todo.length) { toast(mid.length ? 'Tous ont déjà une position' : 'Aucun arbre entre ces deux n°'); return false; }
-      if (!confirm(`Positionner ${todo.length} arbre(s) entre « ${A.name} » et « ${B.name} » ?`)) return false;
-      todo.forEach(t => { const k = (t.pos - A.pos) / (B.pos - A.pos); setPos(t, A.lat + (B.lat - A.lat) * k, A.lng + (B.lng - A.lng) * k, null); });
-      save(); drawMarkers(); refreshPanel(); toast(`${todo.length} arbre(s) positionné(s)`);
+      const row = fd.get('row'), r = planAlign(row, !!fd.get('even'), !!fd.get('fill'));
+      if (r.err) { toast(r.err); return false; }
+      const sp = r.spacing ? ` · espacement ≈ ${r.spacing.toFixed(1).replace('.', ',')} m` : '';
+      if (!confirm(`Rangée « ${row} » : ${r.items.length} arbre(s)${r.added ? ` (dont ${r.added} nouvellement placé(s))` : ''}${sp}.\nDéplacement moyen ${r.mean.toFixed(1).replace('.', ',')} m, maximum ${r.max.toFixed(1).replace('.', ',')} m${r.outliers ? `\n${r.outliers} point(s) très écarté(s) ignoré(s) pour tracer la ligne` : ''}.\nAppliquer ?`)) return false;
+      MAPUI.undo = { row, items: r.items.map(i => ({ id: i.t.id, lat: i.t.lat, lng: i.t.lng, acc: i.t.gpsAcc, was: i.was })) };
+      r.items.forEach(i => setPos(i.t, i.lat, i.lng, null));
+      save(); drawMarkers(); refreshPanel(); toast(`Rangée « ${row} » alignée`);
     }
   });
-  $('#rowsel').addEventListener('change', e => { $('#rowa').innerHTML = $('#rowb').innerHTML = optsFor(e.target.value); });
+}
+function undoAlign() {
+  const u = MAPUI.undo; if (!u) return;
+  u.items.forEach(i => { const t = treeById(i.id); if (!t) return; if (i.was) { t.lat = i.lat; t.lng = i.lng; t.gpsAcc = i.acc ?? null; } else { t.lat = null; t.lng = null; t.gpsAcc = null; } });
+  MAPUI.undo = null; save(); drawMarkers(); refreshPanel(); toast('Alignement annulé');
 }
 
 Object.assign(actions, {
@@ -254,6 +294,7 @@ Object.assign(actions, {
   mapSkip: () => { MAPUI.target = nextUnplaced(MAPUI.target); refreshPanel(); },
   mapRecord: recordHere,
   mapRow: rowForm,
+  mapUndo: undoAlign,
   mapAssign: assignForm,
   mapRows: () => { MAPUI.rows = !MAPUI.rows; drawRows(); refreshPanel(); },
   ordPick: ({ id }) => { const k = ORDER.indexOf(id); if (k >= 0) ORDER.splice(k, 1); else ORDER.push(id); updOrder(); }
