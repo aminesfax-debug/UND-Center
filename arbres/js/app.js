@@ -1,4 +1,5 @@
 'use strict';
+const APP_VERSION = 'v6';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -583,7 +584,7 @@ function viewMore() {
     <h2>🔔 Rappels sur le téléphone</h2><div class="card"><p class="small muted">Exporte les tâches et périodes de récolte en fichier calendrier (.ics) à ouvrir avec Google Agenda / Apple Calendrier : notification la veille à 9 h, répétitions annuelles incluses. À refaire après avoir ajouté de nouvelles tâches.</p><button class="btn block" data-act="ics">📅 Exporter vers mon agenda (.ics)</button></div>
     <h2>📈 Récoltes (kg) par type</h2><div class="card">${yrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${yrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(hv).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${yrs.map(a => `<td>${hv[k][a] ? Math.round(hv[k][a] * 10) / 10 : '—'}</td>`).join('')}</tr>`).join('')}</table>` : '<span class="muted">Aucune récolte saisie.</span>'}</div>
     <h2>🛠️ Données</h2><div class="card"><button class="btn block" data-act="mergeDefaults">Ajouter les fiches par défaut manquantes</button><button class="btn danger block" data-act="wipe">Tout effacer</button></div>
-    <p class="muted small" style="text-align:center">Mes Arbres · fonctionne hors-ligne · ${y}</p>`;
+    <p class="muted small" style="text-align:center">Mes Arbres · version ${APP_VERSION} · fonctionne hors-ligne · ${y}</p>`;
 }
 
 // ───────── Export / import / ICS ─────────
@@ -713,5 +714,14 @@ window.addEventListener('hashchange', () => { closeSheet(); render(); });
   try { await DB.open(); await loadState(); } catch (e) { $('#view').innerHTML = `<div class="empty">Stockage indisponible : ${esc(e.message)}<br>Désactivez la navigation privée.</div>`; return; }
   render();
   syncInit();
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    const hadController = !!navigator.serviceWorker.controller; let reloading = false;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); }); // cherche une mise à jour à chaque retour dans l'appli
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => { // nouvelle version prise en charge → rechargement (sauf saisie en cours)
+      if (!hadController || reloading) return;
+      if ($('#sheet').hidden) { reloading = true; location.reload(); } else toast('Mise à jour disponible — fermez puis rouvrez l’appli');
+    });
+  }
 })();
