@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -69,6 +69,17 @@ async function loadState() {
   S = await DB.get('kv', 'state');
   if (!S) { S = { v: 1, trees: [], logs: [], tasks: [], registry: seedRegistry(), settings: {} }; save(); }
   try { navigator.storage?.persist?.(); } catch (e) { /* ignore */ }
+  migrate();
+}
+// Migrations ponctuelles des données existantes (une fois par appareil)
+function migrate() {
+  S.settings ||= {}; S.settings.mig ||= {};
+  if (!S.settings.mig.noMaturite) { // tâche « Contrôle de maturité » supprimée : remplacée par le constat « Quantité de fruits »
+    const GONE = 'Contrôle de maturité avant récolte';
+    S.registry.forEach(f => { if ((f.plan || []).some(p => p.label === GONE)) f.plan = f.plan.filter(p => p.label !== GONE); });
+    S.tasks = S.tasks.filter(t => t.done || t.label !== GONE);
+    S.settings.mig.noMaturite = true; save();
+  }
 }
 
 // Photos
