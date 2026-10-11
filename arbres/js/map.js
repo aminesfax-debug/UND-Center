@@ -1,8 +1,8 @@
 'use strict';
 /* Plan interactif des arbres (Leaflet embarqué, fonctionne sans réseau pour les points ;
    les fonds de carte satellite / OpenStreetMap demandent une connexion). */
-const MAPUI = { layer: 'type', base: 'sat', filter: '', edit: false, mode: null, target: null, focus: null, center: null, zoom: null };
-let MAP = null, MARKERS = null, BASE = null, ME = null, WATCH = null, GPS = null;
+const MAPUI = { rows: true, layer: 'type', base: 'sat', filter: '', edit: false, mode: null, target: null, focus: null, center: null, zoom: null };
+let MAP = null, ROWS = null, MARKERS = null, BASE = null, ME = null, WATCH = null, GPS = null;
 
 const TYPE_PALETTE = ['#2f8f4f', '#d9822b', '#7a5cc2', '#2a8fbd', '#c9484a', '#a0a830', '#c2569b', '#5b6b7b', '#8a5a2b', '#1f9e8f'];
 const natCmp = (a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true });
@@ -58,7 +58,9 @@ function panelHTML() {
       <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px"><button class="btn sm col" data-act="mapSurvey"${un.length ? '' : ' disabled'}>🧭 Relevé GPS</button>
       <button class="btn sm col" data-act="mapPlace"${un.length ? '' : ' disabled'}>👆 Placer sur la carte</button>
       <button class="btn sm col" data-act="mapRow">↔️ Compléter rangée</button></div>
-      <div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapAssign">📋 Définir une rangée</button></div>
+      <div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapAssign">📋 Définir une rangée</button>
+      <button class="btn sm col${MAPUI.rows ? ' primary' : ''}" data-act="mapRows">〰️ Traits de rangées : ${MAPUI.rows ? 'oui' : 'non'}</button></div>
+      <p class="small muted" style="margin:6px 0 0">Les traits relient les arbres d’une rangée dans l’ordre ; un trait <b style="color:#d64545">rouge pointillé</b> signale un écart anormal (souvent une erreur d’ordre ou un arbre mal placé).</p>
       ${MAPUI.edit ? '<p class="small muted">Maintenez et glissez un point pour corriger sa position.</p>' : ''}`;
   }
   return h;
@@ -71,9 +73,29 @@ function gpsText() {
 }
 function refreshPanel() { const p = $('#mappanel'); if (p) p.innerHTML = panelHTML(); const l = $('#maplegend'); if (l) l.innerHTML = legendHTML(); }
 
+// Traits reliant les arbres de chaque rangée dans l'ordre : un zigzag trahit une erreur d'ordre.
+// Un segment très supérieur à l'écart habituel de la rangée est tracé en rouge.
+function drawRows() {
+  if (!ROWS) return; ROWS.clearLayers();
+  if (!MAPUI.rows) return;
+  const by = {};
+  S.trees.filter(t => alive(t) && t.row && t.pos && hasPos(t)).forEach(t => (by[t.row] ||= []).push(t));
+  for (const [name, list] of Object.entries(by)) {
+    list.sort((a, b) => a.pos - b.pos);
+    const pts = list.map(t => L.latLng(t.lat, t.lng));
+    const per = list.slice(1).map((t, i) => Math.max(1, t.pos - list[i].pos));
+    const steps = pts.slice(1).map((p, i) => p.distanceTo(pts[i]) / per[i]), srt = [...steps].sort((x, y) => x - y), med = srt.length ? srt[Math.floor(srt.length / 2)] : 0;
+    steps.forEach((g, i) => {
+      const bad = steps.length >= 3 && med > 0 && g > 2.5 * med;
+      L.polyline([pts[i], pts[i + 1]], { color: bad ? '#ff3b30' : '#ffe14d', weight: bad ? 3 : 2, opacity: 0.9, dashArray: bad ? '6 4' : null, interactive: false }).addTo(ROWS);
+    });
+    L.marker(pts[0], { icon: L.divIcon({ className: 'rowdot', html: '', iconSize: [1, 1] }), interactive: false, keyboard: false })
+      .bindTooltip(esc(name), { permanent: true, direction: 'left', offset: [-6, 0], className: 'rowlbl' }).addTo(ROWS);
+  }
+}
 function destroyMap() {
   if (WATCH != null) { navigator.geolocation.clearWatch(WATCH); WATCH = null; }
-  if (MAP) { MAP.remove(); MAP = null; MARKERS = null; BASE = null; ME = null; }
+  if (MAP) { MAP.remove(); MAP = null; ROWS = null; MARKERS = null; BASE = null; ME = null; }
 }
 function setBase() {
   if (!MAP) return;
@@ -88,6 +110,7 @@ function initMap() {
   if (typeof L === 'undefined') { el.innerHTML = '<div class="empty">Module de carte non chargé.</div>'; return; }
   MAP = L.map(el, { maxZoom: 21, zoomControl: true });
   setBase();
+  ROWS = L.layerGroup().addTo(MAP);
   MARKERS = L.layerGroup().addTo(MAP);
   const pts = drawMarkers();
   const f = MAPUI.focus && treeById(MAPUI.focus);
@@ -116,6 +139,7 @@ function drawMarkers() {
     m.on('dragend', () => { const p = m.getLatLng(); t.lat = +p.lat.toFixed(7); t.lng = +p.lng.toFixed(7); t.gpsAcc = null; save(); toast('Position mise à jour'); });
     m.addTo(MARKERS); pts.push([t.lat, t.lng]);
   });
+  drawRows();
   return pts;
 }
 
@@ -231,6 +255,7 @@ Object.assign(actions, {
   mapRecord: recordHere,
   mapRow: rowForm,
   mapAssign: assignForm,
+  mapRows: () => { MAPUI.rows = !MAPUI.rows; drawRows(); refreshPanel(); },
   ordPick: ({ id }) => { const k = ORDER.indexOf(id); if (k >= 0) ORDER.splice(k, 1); else ORDER.push(id); updOrder(); }
 });
 document.addEventListener('input', e => {

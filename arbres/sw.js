@@ -1,4 +1,4 @@
-const CACHE = 'arbres-v9';
+const CACHE = 'arbres-v10';
 const ASSETS = ['./', './index.html', './style.css', './js/data.js', './js/app.js', './js/map.js', './js/vendor/leaflet.js', './js/vendor/leaflet.css', './js/sync.js', './js/firebase-config.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

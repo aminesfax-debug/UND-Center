@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v9';
+const APP_VERSION = 'v10';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
