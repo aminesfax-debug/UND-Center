@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v14';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -80,6 +80,12 @@ function migrate() {
     S.tasks = S.tasks.filter(t => t.done || t.label !== GONE);
     S.settings.mig.noMaturite = true; save();
   }
+  if (!S.settings.mig.constatFruits) { // rappel annuel « Constat : quantité de fruits » (olivier), dont la réalisation = constat de fruits
+    const NEW = { month: 10, type: 'constat', label: 'Constat : quantité de fruits' };
+    S.registry.forEach(f => { if (norm(f.type) === 'olivier' && (f.plan || []).length && !f.plan.some(p => p.type === 'constat')) { f.plan.push({ ...NEW }); f.plan.sort((a, b) => a.month - b.month); } });
+    S.trees.filter(t => alive(t) && norm(t.type) === 'olivier').forEach(t => addPlanTask(t, NEW)); // uniquement cette tâche : on ne recrée pas celles que vous auriez supprimées
+    S.settings.mig.constatFruits = true; save();
+  }
 }
 
 // Photos
@@ -148,19 +154,19 @@ function ficheOf(t) {
   m._exact = !!exact; m._hasGeneric = !!generic;
   return m;
 }
+// Crée la tâche d'une ligne du plan type pour un arbre, sauf si elle existe déjà (ouverte, ou faite depuis < 300 j)
+function addPlanTask(t, p) {
+  const today = todayISO(), cm = new Date().getMonth() + 1, key = `${p.type}|${p.label}|${p.month}`;
+  if (S.tasks.some(x => x.treeId === t.id && x.tplKey === key && !x.done)) return 0;
+  if (S.tasks.some(x => x.treeId === t.id && x.tplKey === key && x.done && x.doneDate && diffDays(today, x.doneDate) < 300)) return 0;
+  const y = new Date().getFullYear(); let date = `${y}-${pad(p.month)}-15`;
+  if (date < today) date = p.month === cm ? today : `${y + 1}-${pad(p.month)}-15`;
+  S.tasks.push({ id: uid(), treeId: t.id, type: p.type, label: p.label, date, repeat: 'y1', tplKey: key, done: false, product: '', notes: '' });
+  return 1;
+}
 function ensurePlan(t) {
   const f = ficheOf(t); if (!f || !f.plan) return 0;
-  const today = todayISO(), cm = new Date().getMonth() + 1; let n = 0;
-  for (const p of f.plan) {
-    const key = `${p.type}|${p.label}|${p.month}`;
-    if (S.tasks.some(x => x.treeId === t.id && x.tplKey === key && !x.done)) continue;
-    if (S.tasks.some(x => x.treeId === t.id && x.tplKey === key && x.done && x.doneDate && diffDays(today, x.doneDate) < 300)) continue;
-    let y = new Date().getFullYear(), date = `${y}-${pad(p.month)}-15`;
-    if (date < today) date = p.month === cm ? today : `${y + 1}-${pad(p.month)}-15`;
-    S.tasks.push({ id: uid(), treeId: t.id, type: p.type, label: p.label, date, repeat: 'y1', tplKey: key, done: false, product: '', notes: '' });
-    n++;
-  }
-  return n;
+  return f.plan.reduce((n, p) => n + addPlanTask(t, p), 0);
 }
 const REPEATS = { '': 'Aucune', y1: 'Chaque année', m3: 'Tous les 3 mois', m1: 'Tous les mois', d14: 'Toutes les 2 semaines', d7: 'Chaque semaine' };
 function nextDate(date, rep) {
@@ -320,7 +326,7 @@ function treeForm(t) {
   });
 }
 
-function logForm(treeId, log, kind) {
+function logForm(treeId, log, kind, taskId) {
   const isNew = !log; log = log || { date: todayISO(), kind: kind || 'constat' };
   const t = treeById(treeId);
   sheet(isNew ? 'Nouvelle entrée — ' + esc(treeLabel(t)) : 'Modifier l’entrée', `
@@ -339,13 +345,16 @@ function logForm(treeId, log, kind) {
   `, {
     onSubmit: async fd => {
       const k = fd.get('kind');
+      if (taskId && (k !== 'constat' || fd.get('fruit') === '')) { toast('Choisissez le type « Constat » et la quantité de fruits'); return false; }
       if (k === 'recolte') { const d = darUntil(t); if (d && d.date > fd.get('date') && !confirm(`⚠️ Délai avant récolte en cours jusqu’au ${fmtDate(d.date)} (${d.product || 'traitement'}). Enregistrer quand même ?`)) return false; }
       const obj = isNew ? { id: uid(), treeId } : log;
       Object.assign(obj, { date: fd.get('date'), kind: k, text: fieldVal(fd, 'text'), product: fieldVal(fd, 'product'), dar: k === 'traitement' ? parseInt(fd.get('dar')) || 0 : 0,
         oil: k === 'recolte' ? num(fd.get('oil')) : null, fruit: k === 'constat' && fd.get('fruit') !== '' ? +fd.get('fruit') : null, crop: k === 'constat' ? fieldVal(fd, 'crop') : '', qty: k === 'recolte' ? num(fd.get('qty_kg')) : k === 'irrigation' ? num(fd.get('qty_l')) : null });
       obj.photoId = await formPhoto(fd, log.photoId);
       if (isNew) S.logs.push(obj);
-      save(); render(); toast('Enregistré');
+      const tk = taskId && S.tasks.find(x => x.id === taskId);
+      if (tk && !tk.done) completeTask(tk, obj.date);
+      save(); render(); toast(tk ? 'Constat enregistré · tâche terminée' : 'Enregistré');
     }
   });
 }
@@ -377,7 +386,15 @@ function taskForm(task, preset = {}) {
   });
 }
 
+// Marque la tâche faite et planifie l'occurrence suivante si elle se répète
+function completeTask(task, date) {
+  task.done = true; task.doneDate = date;
+  const nd = nextDate(task.date, task.repeat);
+  if (nd) { let d = nd; while (d < date) d = nextDate(d, task.repeat); S.tasks.push({ ...task, id: uid(), date: d, done: false, doneDate: null }); }
+  return !!nd;
+}
 function doneForm(task) {
+  if (task.type === 'constat') { logForm(task.treeId, null, 'constat', task.id); return; } // le constat de fruits EST la réalisation de la tâche
   const t = treeById(task.treeId), isPest = task.type === 'pesticide';
   sheet('Terminer : ' + esc(task.label), `
     <p class="muted">${esc(treeLabel(t))}</p>
@@ -389,10 +406,8 @@ function doneForm(task) {
     submitLabel: '✓ Terminé',
     onSubmit: fd => {
       const date = fd.get('date');
-      task.done = true; task.doneDate = date;
+      const nd = completeTask(task, date);
       S.logs.push({ id: uid(), treeId: task.treeId, date, kind: isPest ? 'traitement' : 'travail', text: `${TASK_TYPES[task.type].i} ${task.label}${fieldVal(fd, 'text') ? ' — ' + fieldVal(fd, 'text') : ''}`, product: fieldVal(fd, 'product'), dar: isPest ? parseInt(fd.get('dar')) || 0 : 0, qty: null, taskId: task.id });
-      const nd = nextDate(task.date, task.repeat);
-      if (nd) { let d = nd; while (d < date) d = nextDate(d, task.repeat); S.tasks.push({ ...task, id: uid(), date: d, done: false, doneDate: null }); }
       save(); render(); toast(nd ? 'Terminé · prochaine occurrence planifiée' : 'Terminé');
     }
   });
