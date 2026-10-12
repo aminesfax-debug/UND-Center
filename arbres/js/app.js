@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v17';
+const APP_VERSION = 'v18';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -638,7 +638,7 @@ function viewMore() {
   const fYrs = [...new Set(Object.values(fr).flatMap(o => Object.keys(o)))].sort().slice(-4);
   return `<h1>⚙️ Plus</h1>
     <h2>☁️ Synchronisation</h2><div class="card">${syncCard()}</div>
-    <h2>📊 Excel</h2><div class="card"><p class="small muted">Exportez la liste des arbres dans un classeur Excel, modifiez les données voulues (nom, année, zone, rangée, santé, position GPS, arrosage…), puis réimportez-le : l’appli montre les changements et demande confirmation avant d’appliquer.</p>
+    <h2>📊 Excel</h2><div class="card"><p class="small muted">Exportez la liste des arbres (et tout l’historique, en lecture seule) dans un classeur Excel, modifiez les données voulues (nom, année, zone, rangée, santé, position GPS, arrosage…), puis réimportez-le : l’appli montre les changements et demande confirmation avant d’appliquer.</p>
     <button class="btn primary block" data-act="xlsxExport">⬇️ Exporter les arbres (.xlsx)</button>
     <label class="btn block" style="cursor:pointer">⬆️ Importer un classeur modifié<input type="file" id="xlsimp" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
     ${typeof IMPORT_UNDO !== 'undefined' && IMPORT_UNDO ? '<button class="btn block" data-act="xlsxUndo">↩️ Annuler le dernier import</button>' : ''}</div>

@@ -91,10 +91,10 @@ function sheetXml(rows, o = {}) { // rows: [[valeur|{v,s}]]
 function buildXlsx(sheets) { // sheets: [{name, rows, opts}]
   const enc = new TextEncoder(), f = (name, text) => ({ name, data: enc.encode(text) });
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
-    + `<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>`
+    + `<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\-mm\-dd"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>`
     + `<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2F7D4F"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE9ECEA"/></patternFill></fill></fills>`
     + `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>`
-    + `<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs>`
+    + `<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>`
     + `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((s, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`;
   const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${sheets.map((s, i) => `<sheet name="${xe(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`;
@@ -116,6 +116,30 @@ function treeRow(t) {
   return { id: t.id, name: t.name, type: t.type, variety: t.variety || '', year: t.year || '', zone: t.zone || '', row: t.row || '', pos: t.pos || '', status: sl[t.status] || sl.bon,
     lat: t.lat ?? '', lng: t.lng ?? '', summerDays: i.summerDays ?? '', winterDays: i.winterDays ?? '', litres: i.litres ?? '', notes: t.notes || '' };
 }
+// ───────── Historique (feuilles en lecture seule) ─────────
+const xlDate = iso => (iso ? { v: Math.round((Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 864e5), s: 4 } : '');
+const H = labels => labels.map(v => ({ v, s: 1 }));
+function historySheets() {
+  const byId = Object.fromEntries(S.trees.map(t => [t.id, t])), ord = (a, b) => a.date.localeCompare(b.date);
+  const who = l => { const t = byId[l.treeId]; return t ? [t.name, t.type, t.variety || '', t.zone || '', t.row || ''] : [l.treeId + ' (arbre supprimé)', '', '', '', '']; };
+  const logs = k => S.logs.filter(l => l.kind === k).sort((a, b) => who(a)[0].localeCompare(who(b)[0], 'fr', { numeric: true }) || ord(a, b));
+  const wid = [24, 14, 16, 14, 10];
+  const sheet = (name, head, rows, widths) => ({ name, rows: [H(head), ...rows], opts: { freeze: true, filter: true, widths } });
+  const fruits = logs('constat').filter(l => l.fruit != null).map(l => [...who(l), xlDate(l.date), +l.date.slice(0, 4), l.crop ? CROPS[l.crop] : '', LEVELS[l.fruit], l.fruit, l.text || '']);
+  const harv = logs('recolte').filter(l => l.qty != null || l.oil != null).map(l => [...who(l), xlDate(l.date), +l.date.slice(0, 4), l.qty ?? '', l.oil ?? '', l.estimated ? 'oui' : '', l.text || '']);
+  const eau = logs('irrigation').map(l => [...who(l).slice(0, 4), xlDate(l.date), +l.date.slice(0, 4), l.qty ?? '', l.source === 'pluie' ? 'pluie' : 'arrosage', l.text || '']);
+  const journal = S.logs.filter(l => !['irrigation'].includes(l.kind) && !(l.kind === 'constat' && l.fruit != null && !l.text)).sort((a, b) => who(a)[0].localeCompare(who(b)[0], 'fr', { numeric: true }) || ord(a, b))
+    .map(l => [...who(l).slice(0, 4), xlDate(l.date), LOG_KINDS[l.kind] ? LOG_KINDS[l.kind].l : l.kind, l.text || '', l.product || '', l.dar || '']);
+  const tasks = S.tasks.filter(t => byId[t.treeId]).sort((a, b) => byId[a.treeId].name.localeCompare(byId[b.treeId].name, 'fr', { numeric: true }) || a.date.localeCompare(b.date))
+    .map(t => { const tr = byId[t.treeId]; return [tr.name, tr.type, tr.variety || '', tr.zone || '', (TASK_TYPES[t.type] || TASK_TYPES.autre).l, t.label, xlDate(t.date), t.done ? 'oui' : 'non', xlDate(t.doneDate), REPEATS[t.repeat || ''] || '', t.product || '']; });
+  return [
+    sheet('Fruits', ['Arbre', 'Type', 'Variété', 'Zone', 'Rangée', 'Date', 'Année', 'Récolte concernée', 'Quantité de fruits', 'Niveau (0 à 6)', 'Description'], fruits, [...wid, 12, 8, 24, 18, 12, 40]),
+    sheet('Récoltes', ['Arbre', 'Type', 'Variété', 'Zone', 'Rangée', 'Date', 'Année', 'Quantité (kg)', 'Huile (L)', 'Estimation', 'Description'], harv, [...wid, 12, 8, 13, 10, 11, 40]),
+    sheet('Arrosages', ['Arbre', 'Type', 'Variété', 'Zone', 'Date', 'Année', 'Litres', 'Origine', 'Description'], eau, [24, 14, 16, 14, 12, 8, 10, 11, 40]),
+    sheet('Journal', ['Arbre', 'Type', 'Variété', 'Zone', 'Date', 'Entrée', 'Description', 'Produit', 'Délai avant récolte (j)'], journal, [24, 14, 16, 14, 12, 12, 60, 24, 14]),
+    sheet('Tâches', ['Arbre', 'Type', 'Variété', 'Zone', 'Action', 'Intitulé', 'Date prévue', 'Faite', 'Date de réalisation', 'Répétition', 'Produit'], tasks, [24, 14, 16, 14, 20, 40, 12, 7, 14, 18, 22])
+  ];
+}
 function exportTreesXlsx() {
   const trees = [...S.trees].sort((a, b) => a.type.localeCompare(b.type, 'fr') || (a.row || '￿').localeCompare(b.row || '￿', 'fr', { numeric: true }) || (a.pos || 1e9) - (b.pos || 1e9) || a.name.localeCompare(b.name, 'fr', { numeric: true }));
   const head = TREE_COLS.map(([h]) => ({ v: h, s: 1 }));
@@ -131,9 +155,11 @@ function exportTreesXlsx() {
     ['• Latitude et Longitude en degrés décimaux (ex. 34.7406 et 10.7603), les deux ou aucune.'],
     ['• Arrosage : nombre de jours entre deux arrosages (0 = pas d’arrosage) ; Litres par arrosage.'],
     ['• Avant l’import, l’appli vous montre toutes les modifications et vous demande confirmation ; vous pourrez annuler.'],
+    ['• Les feuilles Fruits, Récoltes, Arrosages, Journal et Tâches sont une copie de l’historique, en LECTURE SEULE (pour vos analyses, tableaux croisés, graphiques) : l’import les ignore.'],
     [''], ['Exporté le ' + fmtDate(todayISO()) + ' — ' + trees.length + ' arbre(s).']].map((r, i) => [{ v: r[0], s: i === 0 ? 1 : 3 }]);
   const blob = buildXlsx([
     { name: 'Arbres', rows, opts: { freeze: true, filter: true, widths: TREE_COLS.map(c => c[2]), validations: [{ sqref: `${stCol}2:${stCol}2000`, list: sl }] } },
+    ...historySheets(),
     { name: 'Aide', rows: help, opts: { widths: [110] } }]);
   const name = `arbres-${todayISO()}.xlsx`;
   if (typeof download === 'function') download(blob, name);
