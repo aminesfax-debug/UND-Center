@@ -32,7 +32,8 @@ async function syncStart() {
   const saved = (await DB.get('kv', key)) || {};
   COLS.forEach(c => { Sync.inflight[c] = {}; Sync.synced[c] = saved[c] || {}; Sync.seen[c] = false; Sync.firstSnap[c] = false; });
   Sync.photoSynced = new Set(saved.photos || []); Sync.key = key;
-  COLS.forEach(c => Sync.unsub.push(Sync.fs.collection(cname(c)).onSnapshot(snap => applyRemote(c, snap), e => setStatus('error', e.code === 'permission-denied' ? 'Accès refusé par les règles Firestore (e-mail non autorisé ou règles non publiées).' : e.message))));
+  // includeMetadataChanges : sans cette option, la confirmation « données à jour » du serveur n'est jamais signalée quand elle est identique au cache
+  COLS.forEach(c => Sync.unsub.push(Sync.fs.collection(cname(c)).onSnapshot({ includeMetadataChanges: true }, snap => applyRemote(c, snap), e => setStatus('error', e.code === 'permission-denied' ? 'Accès refusé par les règles Firestore (e-mail non autorisé ou règles non publiées).' : e.message))));
 }
 // Test de connexion indépendant du SDK : interroge Firestore en REST avec votre jeton et affiche la réponse brute.
 async function syncTest() {
