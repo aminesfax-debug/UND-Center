@@ -15,8 +15,8 @@ async function syncInit() {
   try {
     if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
     Sync.auth = firebase.auth(); Sync.fs = firebase.firestore();
-    // Safari/iOS : certains réseaux bloquent le canal WebChannel de Firestore → bascule automatique en « long polling »
-    try { Sync.fs.settings({ experimentalAutoDetectLongPolling: true, merge: true }); } catch (e) { /* ignoré */ }
+    // Safari/iOS : le canal par défaut de Firestore (WebChannel / flux) est souvent bloqué → on impose le « long polling » (requêtes classiques)
+    try { Sync.fs.settings({ experimentalForceLongPolling: true, useFetchStreams: false, merge: true }); } catch (e) { /* ignoré */ }
     try { await Sync.fs.enablePersistence({ synchronizeTabs: true }); } catch (e) { /* plusieurs onglets / navigateur non supporté : on continue */ }
     Sync.auth.onAuthStateChanged(u => { Sync.user = u; if (u) syncStart(); else syncStop(); if (typeof render === 'function') render(); });
   } catch (e) { Sync.status = 'error'; Sync.err = e.message; }
@@ -33,6 +33,17 @@ async function syncStart() {
   COLS.forEach(c => { Sync.inflight[c] = {}; Sync.synced[c] = saved[c] || {}; Sync.seen[c] = false; Sync.firstSnap[c] = false; });
   Sync.photoSynced = new Set(saved.photos || []); Sync.key = key;
   COLS.forEach(c => Sync.unsub.push(Sync.fs.collection(cname(c)).onSnapshot(snap => applyRemote(c, snap), e => setStatus('error', e.code === 'permission-denied' ? 'Accès refusé par les règles Firestore (e-mail non autorisé ou règles non publiées).' : e.message))));
+}
+// Test de connexion indépendant du SDK : interroge Firestore en REST avec votre jeton et affiche la réponse brute.
+async function syncTest() {
+  const out = [`Appli ${typeof APP_VERSION !== 'undefined' ? APP_VERSION : ''} · navigateur : ${navigator.onLine ? 'en ligne' : 'HORS LIGNE'}`];
+  try {
+    const tok = await Sync.user.getIdToken(); out.push('Connexion au compte : OK');
+    const url = `https://firestore.googleapis.com/v1/projects/${FB_CONFIG.projectId}/databases/(default)/documents/arb_trees?pageSize=1`;
+    const t0 = Date.now(), r = await fetch(url, { headers: { Authorization: 'Bearer ' + tok } }), txt = await r.text();
+    out.push(`Firestore (REST) : HTTP ${r.status} en ${Date.now() - t0} ms`, txt.replace(/\s+/g, ' ').slice(0, 500));
+  } catch (e) { out.push('Échec : ' + e.message); }
+  return out.join('\n');
 }
 function syncRetry() { if (Sync.user) syncStart(); }
 function syncStop() { clearTimeout(Sync.slow); Sync.unsub.forEach(f => f()); Sync.unsub = []; Sync.on = false; Sync.ready = false; Sync.status = 'off'; }
