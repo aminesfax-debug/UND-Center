@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -627,7 +627,7 @@ function syncCard() {
   if (!Sync.user) return '<p class="small muted">Connectez-vous pour partager les données entre vos appareils et avec les personnes autorisées. Sans connexion, l’appli reste utilisable en local.</p><button class="btn primary block" data-act="syncLogin">Se connecter</button>';
   const pend = Sync.ready ? syncPending() : 0;
   const msg = st === 'ok' ? (pend ? `⏳ ${pend} modification(s) en attente d’envoi` : '✅ À jour — tout est confirmé par le serveur') : st === 'error' ? '⚠️ ' + esc(Sync.err) : (Date.now() - (Sync.t0 || 0) > 20000 ? `⏳ Pas de réponse du serveur depuis ${Math.round((Date.now() - Sync.t0) / 1000)} s (${COLS.filter(k => Sync.firstSnap[k]).length}/${COLS.length} collections reçues). Vérifiez le réseau (Wi-Fi ou 4G/5G). Vos données restent sur le téléphone et seront envoyées dès que la connexion aboutit.` : '⏳ Connexion au serveur…');
-  return `<div>${esc(Sync.user.email)}</div><div class="small" style="margin:4px 0 10px">${msg}</div>${st === 'ok' ? '' : '<button class="btn block" data-act="syncRetry">🔄 Réessayer</button>'}<button class="btn block" data-act="syncLogout">Se déconnecter</button>`;
+  return `<div>${esc(Sync.user.email)}</div><div class="small" style="margin:4px 0 10px">${msg}</div>${st === 'ok' ? '' : '<button class="btn block" data-act="syncRetry">🔄 Réessayer</button><button class="btn block" data-act="syncTest">🔍 Tester la connexion</button>'}<button class="btn block" data-act="syncLogout">Se déconnecter</button>`;
 }
 function viewMore() {
   const y = new Date().getFullYear(), hv = {};
@@ -724,6 +724,7 @@ const actions = {
   syncLogin: () => sheet('☁️ Connexion', `<label class="f">E-mail<input name="email" type="email" autocomplete="username" required value="${esc(S.settings.email || '')}"></label><label class="f">Mot de passe<input name="pass" type="password" autocomplete="current-password" required></label>`, {
     submitLabel: 'Se connecter', onSubmit: async fd => { try { await syncLogin(fieldVal(fd, 'email'), fd.get('pass')); S.settings.email = fieldVal(fd, 'email'); toast('Connecté'); } catch (e) { toast('Connexion refusée : ' + (e.code || e.message)); return false; } } }),
   syncRetry: () => { syncRetry(); toast('Nouvelle tentative…'); render(); },
+  syncTest: async () => { sheet('🔍 Test de connexion', '<p class="muted">Test en cours…</p>'); const r = await syncTest(); sheet('🔍 Test de connexion', `<p class="muted small">Envoyez-moi ce texte tel quel.</p><pre style="white-space:pre-wrap;word-break:break-word;font-size:.8rem;user-select:text;-webkit-user-select:text">${esc(r)}</pre>`); },
   syncLogout: async () => { if (!confirm('Se déconnecter ? Les données restent sur ce téléphone mais ne seront plus synchronisées.')) return; await syncLogout(); toast('Déconnecté'); },
   export: async () => { download(await buildBackup(), backupName()); render(); toast('Sauvegarde exportée'); },
   share: async () => { const b = await buildBackup(), f = new File([b], backupName(), { type: 'application/json' }); if (navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: 'Sauvegarde Mes Arbres' }).catch(() => {}); else toast('Partage non supporté'); },
