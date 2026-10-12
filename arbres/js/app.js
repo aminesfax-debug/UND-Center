@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v16';
+const APP_VERSION = 'v17';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -638,6 +638,10 @@ function viewMore() {
   const fYrs = [...new Set(Object.values(fr).flatMap(o => Object.keys(o)))].sort().slice(-4);
   return `<h1>⚙️ Plus</h1>
     <h2>☁️ Synchronisation</h2><div class="card">${syncCard()}</div>
+    <h2>📊 Excel</h2><div class="card"><p class="small muted">Exportez la liste des arbres dans un classeur Excel, modifiez les données voulues (nom, année, zone, rangée, santé, position GPS, arrosage…), puis réimportez-le : l’appli montre les changements et demande confirmation avant d’appliquer.</p>
+    <button class="btn primary block" data-act="xlsxExport">⬇️ Exporter les arbres (.xlsx)</button>
+    <label class="btn block" style="cursor:pointer">⬆️ Importer un classeur modifié<input type="file" id="xlsimp" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label>
+    ${typeof IMPORT_UNDO !== 'undefined' && IMPORT_UNDO ? '<button class="btn block" data-act="xlsxUndo">↩️ Annuler le dernier import</button>' : ''}</div>
     <h2>💾 Sauvegarde</h2><div class="card"><p class="small muted">Les données sont stockées uniquement sur cet appareil. Sauvegardez régulièrement (fichier JSON avec photos) et gardez-le ailleurs (Drive, e-mail…).${S.settings.lastBackup ? '<br>Dernière : ' + fmtDate(S.settings.lastBackup) : ''}</p>
     <button class="btn primary block" data-act="export">⬇️ Exporter une sauvegarde</button>${navigator.canShare ? '<button class="btn block" data-act="share">📤 Partager la sauvegarde</button>' : ''}
     <label class="btn block" style="cursor:pointer">⬆️ Restaurer une sauvegarde<input type="file" id="imp" accept=".json,application/json" hidden></label></div>
@@ -762,7 +766,7 @@ function render() {
   const parts = (location.hash.slice(1) || '/').split('/').filter(Boolean), r = parts[0] || 'home';
   let html;
   if (r === 'arbres') html = viewTrees(); else if (r === 'arbre') html = viewTree(parts[1]); else if (r === 'calendrier') html = viewCalendar();
-  else if (r === 'registre') html = viewRegistry(); else if (r === 'plus') html = viewMore(); else if (r === 'plan') html = viewPlan(parts[1]); else html = viewHome();
+  else if (r === 'registre') html = viewRegistry(); else if (r === 'plus') html = viewMore(); else if (r === 'plan') html = viewPlan(parts[1]); else if (r === 'tableau') html = viewDash(parts[1] ? decodeURIComponent(parts[1]) : ''); else html = viewHome();
   const y = window.scrollY;
   $('#view').innerHTML = html;
   const nav = r === 'arbre' || r === 'plan' ? 'arbres' : r;
