@@ -78,7 +78,7 @@ function viewDashType(type) {
   const todo = Object.values(groups).sort((a, b) => a.date.localeCompare(b.date));
   const watch = live.filter(t => t.status !== 'bon').sort(natCmp);
   const waterList = live.filter(t => { const w = nextWater(t); return w && w.date <= t0; });
-  return `<div class="row" style="margin-bottom:8px"><a href="#/tableau" class="btn sm">← Catégories</a><button class="btn sm right" data-act="dashList" data-type="${esc(type)}">☰ Voir la liste</button></div>
+  return `<div class="row" style="margin-bottom:8px"><a href="#/tableau" class="btn sm">← Catégories</a><button class="btn sm right" data-act="dashList" data-type="${esc(type)}">☰ Voir la liste</button> <button class="btn sm" data-act="dashPlan" data-type="${esc(type)}">🗓️ Plan type</button></div>
     <h1 style="margin-bottom:8px">${esc(type)} <span class="muted small">(${live.length} vivant${live.length > 1 ? 's' : ''}${s.n > s.live ? ' · ' + (s.n - s.live) + ' retiré(s)' : ''})</span></h1>
     <div class="stats" style="grid-template-columns:repeat(4,1fr)"><div class="stat"><b>${s.avgAge != null ? fmt1(s.avgAge) : '—'}</b><span>âge moyen (ans)</span></div>
       <div class="stat"><b style="color:${s.st.surveiller + s.st.malade ? 'var(--warn)' : 'inherit'}">${s.st.surveiller + s.st.malade}</b><span>à surveiller / malades</span></div>
@@ -97,4 +97,8 @@ function viewDashType(type) {
     ${watch.length ? `<h2>⚠️ À surveiller / malades</h2><div class="card">${watch.slice(0, 30).map(t => `<div class="task"><a class="col" href="#/arbre/${t.id}"><b>${esc(t.name)}</b><div class="small muted">${esc(t.variety || '')}${t.zone ? ' · ' + esc(t.zone) : ''}</div></a><span class="badge ${STATUS[t.status][1]}">${STATUS[t.status][0]}</span></div>`).join('')}${watch.length > 30 ? `<div class="small muted">… et ${watch.length - 30} autre(s)</div>` : ''}</div>` : ''}
     ${waterList.length ? `<h2>💧 À arroser maintenant (${waterList.length})</h2><div class="card small">${waterList.slice(0, 40).map(t => `<a href="#/arbre/${t.id}">${esc(t.name)}</a>`).join(' · ')}${waterList.length > 40 ? ' …' : ''}</div>` : ''}`;
 }
-Object.assign(actions, { dashList: ({ type }) => { ui.fType = type; ui.fZone = ''; ui.q = ''; location.hash = '#/arbres'; } });
+Object.assign(actions, { dashPlan: ({ type }) => {
+    const trees = S.trees.filter(t => alive(t) && t.type === type);
+    if (!confirm(`Générer les tâches manquantes du plan annuel type « ${type} » pour les ${trees.length} arbres vivants ?\n(Les tâches déjà présentes ne sont pas dupliquées ; celles que vous aviez supprimées volontairement seront recréées.)`)) return;
+    const n = trees.reduce((s, t) => s + ensurePlan(t), 0); save(); render(); toast(n ? `${n} tâche(s) créée(s)` : 'Plan déjà à jour');
+  }, dashList: ({ type }) => { ui.fType = type; ui.fZone = ''; ui.q = ''; location.hash = '#/arbres'; } });

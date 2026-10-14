@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v18';
+const APP_VERSION = 'v19';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -56,14 +56,13 @@ const DB = {
 let S = null;
 let saveT = null;
 const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { DB.put('kv', 'state', S).catch(() => toast('⚠️ Échec de sauvegarde')); pushDiff(); }, 150); };
+function defaultFiche(f) {
+  const o = { id: 'def-' + norm(f.type).replace(/\W+/g, '-') + '-' + norm(f.variety).replace(/\W+/g, '-'), type: f.type, variety: f.variety || '', exposition: '', sol: '', arrosage: '', plantation: '', taille: '', fertilisation: '', sante: '', remarques: '', floraison: [], recolte: [], plan: [], ...JSON.parse(JSON.stringify(f)) };
+  delete o.aliases; return o;
+}
 function seedRegistry(existing = []) {
   const have = new Set(existing.map(f => norm(f.type) + '|' + norm(f.variety)));
-  const out = [];
-  for (const f of DEFAULT_FICHES) {
-    if (have.has(norm(f.type) + '|' + norm(f.variety))) continue;
-    out.push({ id: 'def-' + norm(f.type).replace(/\W+/g, '-') + '-' + norm(f.variety).replace(/\W+/g, '-'), type: f.type, variety: f.variety || '', exposition: '', sol: '', arrosage: '', plantation: '', taille: '', fertilisation: '', sante: '', remarques: '', floraison: [], recolte: [], plan: [], ...JSON.parse(JSON.stringify(f)) });
-  }
-  return out;
+  return DEFAULT_FICHES.filter(f => !have.has(norm(f.type) + '|' + norm(f.variety))).map(defaultFiche);
 }
 async function loadState() {
   S = await DB.get('kv', 'state');
@@ -79,6 +78,20 @@ function migrate() {
     S.registry.forEach(f => { if ((f.plan || []).some(p => p.label === GONE)) f.plan = f.plan.filter(p => p.label !== GONE); });
     S.tasks = S.tasks.filter(t => t.done || t.label !== GONE);
     S.settings.mig.noMaturite = true; save();
+  }
+  if (!S.settings.mig.figVarietes) { // variétés de figuier (fiche fournie) : ajout sans doublon ni écrasement
+    const figs = S.registry.filter(f => norm(f.type) === 'figuier'), FIELDS = ['figType', 'bearing', 'capri', 'exposition', 'sol', 'arrosage', 'plantation', 'taille', 'fertilisation', 'sante', 'remarques'];
+    DEFAULT_FICHES.filter(d => d.aliases && norm(d.type) === 'figuier').forEach(d => {
+      const hit = figs.find(f => f.variety && d.aliases.some(a => norm(f.variety).includes(a)));
+      if (hit) { // fiche déjà présente (même sous un autre nom) : on ne complète que les champs VIDES
+        FIELDS.forEach(k => { if (isEmpty(hit[k]) && !isEmpty(d[k])) hit[k] = d[k]; });
+        if (hit.bacour === undefined) hit.bacour = d.bacour;
+        if (isEmpty(hit.recolte)) hit.recolte = [...d.recolte];
+      } else S.registry.push(defaultFiche(d));
+    });
+    const gen = S.registry.find(f => norm(f.type) === 'figuier' && !norm(f.variety)), genDef = DEFAULT_FICHES.find(d => norm(d.type) === 'figuier' && !d.variety);
+    if (gen && genDef) { gen.plan = gen.plan || []; genDef.plan.forEach(p => { if (!gen.plan.some(x => x.label === p.label)) gen.plan.push({ ...p }); }); gen.plan.sort((a, b) => a.month - b.month); }
+    S.settings.mig.figVarietes = true; save();
   }
   if (!S.settings.mig.constatFruits) { // rappel annuel « Constat : quantité de fruits » (olivier), dont la réalisation = constat de fruits
     const NEW = { month: 10, type: 'constat', label: 'Constat : quantité de fruits' };
