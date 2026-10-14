@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v19';
+const APP_VERSION = 'v20';
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -450,8 +450,12 @@ function ficheForm(f, prefill) {
       const type = selVal(fd, 'type'); if (!type) { toast('Type obligatoire'); return false; }
       const dup = S.registry.find(x => x.id !== f.id && norm(x.type) === norm(type) && norm(x.variety) === norm(fieldVal(fd, 'variety')));
       if (dup) { toast('Cette fiche existe déjà'); return false; }
-      const o = isNew ? { id: uid() } : f;
-      Object.assign(o, { type, variety: fieldVal(fd, 'variety') });
+      const o = isNew ? { id: uid() } : f, newVar = fieldVal(fd, 'variety');
+      if (!isNew && (norm(f.type) !== norm(type) || norm(f.variety) !== norm(newVar))) { // renommer la fiche = ne pas orpheliner les arbres qui la portent
+        const linked = S.trees.filter(t => norm(t.type) === norm(f.type) && norm(t.variety) === norm(f.variety));
+        if (linked.length && confirm(`${linked.length} arbre(s) portent actuellement « ${f.type}${f.variety ? ' · ' + f.variety : ''} ». Les renommer aussi en « ${type}${newVar ? ' · ' + newVar : ''} » pour qu’ils gardent cette fiche ?`)) linked.forEach(t => { t.type = type; t.variety = newVar; });
+      }
+      Object.assign(o, { type, variety: newVar });
       for (const k of ['exposition', 'sol', 'arrosage', 'plantation', 'taille', 'fertilisation', 'sante', 'remarques']) o[k] = fieldVal(fd, k);
       if (isFigType(type)) { o.figType = fieldVal(fd, 'figType'); o.bearing = fieldVal(fd, 'bearing'); o.bacour = !!fd.get('bacour'); o.capri = fieldVal(fd, 'capri'); }
       o.floraison = fd.getAll('floraison').map(Number); o.recolte = fd.getAll('recolte').map(Number);

@@ -90,14 +90,37 @@ function viewDashType(type) {
     </div>
     <h2>🌿 Par variété</h2><div class="card" style="overflow-x:auto"><table class="yr" style="font-size:.85rem"><tr><th></th><th>Arbres</th><th>Âge moy.</th><th>Fruits ${y}</th><th>Récolte ${py}</th><th>Récolte ${y}</th></tr>${vars.map(v => {
       const g = live.filter(t => (t.variety || '') === v), gs = groupStats(g), f = gs.fruit[y], hp = gs.harvest[py], h = gs.harvest[y];
-      return `<tr><td class="lab">${esc(v || '— sans variété')}</td><td>${g.length}</td><td>${gs.avgAge != null ? fmt1(gs.avgAge) : '—'}</td><td>${f ? `<b style="color:${lvlColor(f.avg)}">${fmt1(f.avg)}</b>/6` : '—'}</td><td>${hp ? fmt1(hp.kg) + ' kg' : '—'}</td><td>${h ? fmt1(h.kg) + ' kg' : '—'}</td></tr>`; }).join('')}</table></div>
+      const noFiche = v && !findFiches(type, v).exact;
+      return `<tr><td class="lab">${esc(v || '— sans variété')}${noFiche ? ` <button class="btn sm" data-act="dashLink" data-type="${esc(type)}" data-var="${esc(v)}" title="Aucune fiche du registre ne porte exactement ce nom">⚠ sans fiche — associer</button>` : ''}</td><td>${g.length}</td><td>${gs.avgAge != null ? fmt1(gs.avgAge) : '—'}</td><td>${f ? `<b style="color:${lvlColor(f.avg)}">${fmt1(f.avg)}</b>/6` : '—'}</td><td>${hp ? fmt1(hp.kg) + ' kg' : '—'}</td><td>${h ? fmt1(h.kg) + ' kg' : '—'}</td></tr>`; }).join('')}</table></div>
     <h2>📍 Par zone</h2><div class="card" style="overflow-x:auto"><table class="yr" style="font-size:.85rem"><tr><th></th><th>Arbres</th><th>À surveiller</th><th>À arroser</th></tr>${zones.map(z => {
       const g = live.filter(t => (t.zone || '') === z); return `<tr><td class="lab">${esc(z || '— sans zone')}</td><td>${g.length}</td><td>${g.filter(t => t.status !== 'bon').length || '—'}</td><td>${g.filter(t => { const w = nextWater(t); return w && w.date <= t0; }).length || '—'}</td></tr>`; }).join('')}</table></div>
     <h2>🗓️ À faire (60 jours et retards)</h2><div class="card">${todo.length ? todo.map(g => `<div class="task"><div class="col"><div>${(TASK_TYPES[g.type] || TASK_TYPES.autre).i} <b>${esc(g.label)}</b> <span class="badge">${g.n} arbre${g.n > 1 ? 's' : ''}</span></div><div class="small muted"><span style="${g.date < t0 ? 'color:var(--danger);font-weight:600' : ''}">${rel(g.date)}</span> · ${fmtDate(g.date)}</div></div></div>`).join('') : '<span class="muted">Rien de prévu.</span>'}</div>
     ${watch.length ? `<h2>⚠️ À surveiller / malades</h2><div class="card">${watch.slice(0, 30).map(t => `<div class="task"><a class="col" href="#/arbre/${t.id}"><b>${esc(t.name)}</b><div class="small muted">${esc(t.variety || '')}${t.zone ? ' · ' + esc(t.zone) : ''}</div></a><span class="badge ${STATUS[t.status][1]}">${STATUS[t.status][0]}</span></div>`).join('')}${watch.length > 30 ? `<div class="small muted">… et ${watch.length - 30} autre(s)</div>` : ''}</div>` : ''}
     ${waterList.length ? `<h2>💧 À arroser maintenant (${waterList.length})</h2><div class="card small">${waterList.slice(0, 40).map(t => `<a href="#/arbre/${t.id}">${esc(t.name)}</a>`).join(' · ')}${waterList.length > 40 ? ' …' : ''}</div>` : ''}`;
 }
-Object.assign(actions, { dashPlan: ({ type }) => {
+// Fiche du registre la plus proche d'un nom de variété saisi sur les arbres (alias connus, mot de tête identique, inclusion)
+function guessFiche(type, v) {
+  const nv = norm(v), first = nv.split(' ')[0];
+  const cands = S.registry.filter(f => norm(f.type) === norm(type) && f.variety);
+  const alias = DEFAULT_FICHES.find(d => d.aliases && norm(d.type) === norm(type) && d.aliases.some(a => nv.includes(a)));
+  return (alias && cands.find(f => norm(f.variety) === norm(alias.variety)))
+    || cands.find(f => norm(f.variety).split(' ')[0] === first) || cands.find(f => norm(f.variety).includes(nv) || nv.includes(norm(f.variety)));
+}
+Object.assign(actions, { dashLink: ({ type, var: v }) => {
+    const fiches = S.registry.filter(f => norm(f.type) === norm(type) && f.variety).sort((a, b) => a.variety.localeCompare(b.variety, 'fr'));
+    const trees = S.trees.filter(t => t.type === type && (t.variety || '') === v), g = guessFiche(type, v);
+    if (!fiches.length) { toast('Aucune fiche de variété pour ce type : créez-la dans le registre'); return; }
+    sheet('Associer à une fiche', `<p class="muted small">${trees.length} arbre(s) « ${esc(type)} » ont la variété « <b>${esc(v)}</b> », qui ne correspond à aucune fiche du registre. Choisissez la fiche : la variété de ces arbres sera renommée comme elle, et ils hériteront de ses informations (récolte, pollinisation, plan annuel…).</p>
+      <label class="f">Fiche du registre<select name="fiche">${fiches.map(f => opt(f.id, f.variety, g && g.id)).join('')}</select></label>`, {
+      submitLabel: 'Associer',
+      onSubmit: fd => {
+        const f = S.registry.find(x => x.id === fd.get('fiche')); if (!f) return false;
+        if (!confirm(`Renommer la variété de ${trees.length} arbre(s) : « ${v} » → « ${f.variety} » ?`)) return false;
+        trees.forEach(t => (t.variety = f.variety)); save(); render(); toast(`${trees.length} arbre(s) associé(s) à « ${f.variety} »`);
+      }
+    });
+  },
+  dashPlan: ({ type }) => {
     const trees = S.trees.filter(t => alive(t) && t.type === type);
     if (!confirm(`Générer les tâches manquantes du plan annuel type « ${type} » pour les ${trees.length} arbres vivants ?\n(Les tâches déjà présentes ne sont pas dupliquées ; celles que vous aviez supprimées volontairement seront recréées.)`)) return;
     const n = trees.reduce((s, t) => s + ensurePlan(t), 0); save(); render(); toast(n ? `${n} tâche(s) créée(s)` : 'Plan déjà à jour');
