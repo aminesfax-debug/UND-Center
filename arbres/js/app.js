@@ -1,6 +1,6 @@
 'use strict';
 const APP_VERSION = 'v21';
-let TASKS_UNDO = null; // sauvegarde en mémoire de la dernière suppression globale de tâches
+let TASKS_UNDO = null; // dernier nettoyage des tâches en retard, annulable tant que l'appli reste ouverte
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -510,7 +510,7 @@ function viewHome() {
     ${dars.map(x => `<div class="banner danger">⛔ <b>${esc(x.t.name)}</b> : ne pas récolter avant le ${fmtDate(x.d.date)} (${esc(x.d.product || 'traitement')}).</div>`).join('')}
     ${!live.length ? `<div class="empty">Aucun arbre pour l’instant.<br><br><a class="btn primary" data-act="newTree">+ Ajouter mon premier arbre</a></div>` : ''}
     ${water.length ? `<h2>💧 À arroser (${water.length}) <button class="btn sm right" data-act="waterAll">Tout arroser</button> <button class="btn sm" data-act="rain">🌧️</button></h2><div class="card">${water.map(({ t, n }) => `<div class="task"><button class="ck" data-act="water" data-id="${t.id}">💧</button><div class="col"><a href="#/arbre/${t.id}"><b>${esc(t.name)}</b></a><div class="small muted">${n.last ? 'Dernier : ' + fmtDate(n.last) + ' · retard ' + Math.max(0, diffDays(t0, n.date)) + ' j' : 'Jamais arrosé'} · ${t.irrig.litres || '?'} L</div></div></div>`).join('')}</div>` : (live.length ? `<button class="btn sm" data-act="rain">🌧️ Il a plu</button>` : '')}
-    ${overdue.length ? `<h2>⚠️ En retard</h2><div class="card">${overdue.map(x => taskRow(x)).join('')}</div>` : ''}
+    ${overdue.length ? `<h2>⚠️ En retard <button class="btn sm right" data-act="cleanOverdue">🧹 Nettoyer</button></h2><div class="card">${overdue.map(x => taskRow(x)).join('')}</div>` : ''}
     ${today.length ? `<h2>📌 Aujourd’hui</h2><div class="card">${today.map(x => taskRow(x)).join('')}</div>` : ''}
     <h2>🗓️ Dans les 14 jours</h2><div class="card">${soon.length ? soon.map(x => taskRow(x)).join('') : '<span class="muted">Rien de prévu.</span>'}</div>
     ${Object.keys(harv).length ? `<h2>🧺 Récoltes ce mois-ci</h2><div class="card">${Object.entries(harv).map(([k, n]) => `<div>${esc(k)} <span class="badge">${n} arbre${n > 1 ? 's' : ''}</span></div>`).join('')}</div>` : ''}`;
@@ -669,7 +669,7 @@ function viewMore() {
     <h2>🔔 Rappels sur le téléphone</h2><div class="card"><p class="small muted">Exporte les tâches et périodes de récolte en fichier calendrier (.ics) à ouvrir avec Google Agenda / Apple Calendrier : notification la veille à 9 h, répétitions annuelles incluses. À refaire après avoir ajouté de nouvelles tâches.</p><button class="btn block" data-act="ics">📅 Exporter vers mon agenda (.ics)</button></div>
     <h2>📈 Récoltes (kg) par type</h2><div class="card">${yrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${yrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(hv).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${yrs.map(a => `<td>${hv[k][a] ? Math.round(hv[k][a] * 10) / 10 : '—'}</td>`).join('')}</tr>`).join('')}</table>` : '<span class="muted">Aucune récolte saisie.</span>'}</div>
     <h2>🍎 Charge en fruits moyenne (0–6)</h2><div class="card">${fYrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${fYrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(fr).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${fYrs.map(a => { const v = fr[k][a]; if (!v) return '<td>—</td>'; const m = v.reduce((p, q) => p + q, 0) / v.length; return `<td><b style="color:${LEVEL_COLORS[Math.round(m)]}">${lvlFR(m)}</b> <span class="muted">(${v.length})</span></td>`; }).join('')}</tr>`).join('')}</table><p class="muted small">0 = pas de fruits … 6 = énormément. Entre parenthèses : nombre d’arbres avec un constat.</p>` : '<span class="muted">Aucun constat de fruits.</span>'}</div>
-    <h2>🛠️ Données</h2><div class="card"><button class="btn danger block" data-act="delAllTasks">🗑️ Supprimer toutes les tâches planifiées (${S.tasks.filter(t => !t.done).length})</button>${TASKS_UNDO ? `<button class="btn block" data-act="undoDelTasks">↩️ Annuler la suppression (${TASKS_UNDO.length} tâches)</button>` : ''}<button class="btn block" data-act="mergeDefaults">Ajouter les fiches par défaut manquantes</button><button class="btn danger block" data-act="wipe">Tout effacer</button></div>
+    <h2>🛠️ Données</h2><div class="card"><button class="btn danger block" data-act="cleanOverdue">🧹 Nettoyer les tâches en retard (${S.tasks.filter(t => !t.done && t.date < todayISO()).length})</button>${TASKS_UNDO ? `<button class="btn block" data-act="undoDelTasks">↩️ Annuler le nettoyage (${TASKS_UNDO.removed.length + TASKS_UNDO.moved.length} tâches)</button>` : ''}<button class="btn block" data-act="mergeDefaults">Ajouter les fiches par défaut manquantes</button><button class="btn danger block" data-act="wipe">Tout effacer</button></div>
     <p class="muted small" style="text-align:center">Mes Arbres · version ${APP_VERSION} · fonctionne hors-ligne · ${y}</p>`;
 }
 
@@ -755,13 +755,33 @@ const actions = {
   share: async () => { const b = await buildBackup(), f = new File([b], backupName(), { type: 'application/json' }); if (navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: 'Sauvegarde Mes Arbres' }).catch(() => {}); else toast('Partage non supporté'); },
   ics: () => download(buildICS(), 'mes-arbres.ics'),
   mergeDefaults: () => { const add = seedRegistry(S.registry); S.registry.push(...add); save(); toast(add.length + ' fiche(s) ajoutée(s)'); },
-  delAllTasks: () => {
-    const open = S.tasks.filter(t => !t.done); if (!open.length) { toast('Aucune tâche planifiée'); return; }
-    const plan = open.filter(t => t.tplKey).length, late = open.filter(t => t.date < todayISO()).length;
-    if (!confirm(`Supprimer TOUTES les tâches planifiées ?\n\n${open.length} tâche(s) non terminée(s) : ${plan} issue(s) du plan type, ${open.length - plan} créée(s) à la main (dont ${late} en retard).\n\nLes tâches déjà terminées et le journal sont conservés. Les tâches répétitives disparaissent aussi. Vous pourrez annuler tant que vous ne fermez pas l’appli.`)) return;
-    TASKS_UNDO = open.map(t => ({ ...t })); S.tasks = S.tasks.filter(t => t.done); save(); render(); toast(`${open.length} tâches supprimées`);
+  cleanOverdue: () => {
+    const t0 = todayISO(), od = S.tasks.filter(t => !t.done && t.date < t0);
+    if (!od.length) { toast('Aucune tâche en retard'); return; }
+    const rep = od.filter(t => t.repeat), one = od.length - rep.length, plan = od.filter(t => t.tplKey).length;
+    sheet('🧹 Nettoyer les tâches en retard', `<p><b>${od.length}</b> tâche(s) en retard : <b>${one}</b> ponctuelle(s) et <b>${rep.length}</b> qui se répète(nt) (${plan} issue(s) du plan type).</p>
+      <p class="small muted">Les tâches ponctuelles en retard seront supprimées. Les tâches terminées, les tâches à venir et le journal ne sont pas touchés.</p>
+      ${rep.length ? `<div class="card" style="padding:10px"><b>Pour les ${rep.length} tâche(s) qui se répète(nt) :</b>
+        <label style="display:block;color:var(--text);margin-top:8px"><input type="radio" name="rep" value="move" checked style="width:auto"> <b>Les reporter à leur prochaine occurrence</b> <span class="muted small">(recommandé : elles disparaissent des retards mais reviendront à la prochaine échéance, ex. l’an prochain)</span></label>
+        <label style="display:block;color:var(--text);margin-top:8px"><input type="radio" name="rep" value="del" style="width:auto"> <b>Les supprimer définitivement</b> <span class="muted small">(la répétition s’arrête : elles ne reviendront plus sur ces arbres)</span></label></div>` : ''}
+      <p class="small muted">Vous pourrez annuler tant que vous ne fermez pas l’appli.</p>`, {
+      submitLabel: `Nettoyer (${od.length})`,
+      onSubmit: fd => {
+        const del = fd.get('rep') === 'del', undo = { removed: [], moved: [] };
+        od.forEach(t => {
+          if (t.repeat && !del) { let d = nextDate(t.date, t.repeat); while (d < t0) d = nextDate(d, t.repeat); undo.moved.push({ id: t.id, date: t.date }); t.date = d; }
+          else { undo.removed.push({ ...t }); }
+        });
+        const gone = new Set(undo.removed.map(t => t.id)); S.tasks = S.tasks.filter(t => !gone.has(t.id));
+        TASKS_UNDO = undo; save(); render(); toast(`${undo.removed.length} supprimée(s), ${undo.moved.length} reportée(s)`);
+      }
+    });
   },
-  undoDelTasks: () => { if (!TASKS_UNDO) return; S.tasks.push(...TASKS_UNDO); const n = TASKS_UNDO.length; TASKS_UNDO = null; save(); render(); toast(`${n} tâches rétablies`); },
+  undoDelTasks: () => {
+    const u = TASKS_UNDO; if (!u) return;
+    S.tasks.push(...u.removed); u.moved.forEach(m => { const t = S.tasks.find(x => x.id === m.id); if (t) t.date = m.date; });
+    TASKS_UNDO = null; save(); render(); toast('Nettoyage annulé');
+  },
   wipe: async () => { if (!confirm('Effacer TOUTES les données (arbres, journal, tâches, fiches) ? Si la synchronisation est active, elles seront aussi supprimées sur les autres appareils.') || !confirm('Dernière confirmation : action irréversible.')) return; await DB.clear('photos'); photoURLs.clear(); S = { v: 1, trees: [], logs: [], tasks: [], registry: seedRegistry(), settings: {} }; save(); render(); }
 };
 document.addEventListener('click', e => {
