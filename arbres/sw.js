@@ -1,4 +1,4 @@
-const CACHE = 'arbres-v20';
+const CACHE = 'arbres-v21';
 const ASSETS = ['./', './index.html', './style.css', './js/data.js', './js/app.js', './js/map.js', './js/xlsx.js', './js/dash.js', './js/vendor/leaflet.js', './js/vendor/leaflet.css', './js/sync.js', './js/firebase-config.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

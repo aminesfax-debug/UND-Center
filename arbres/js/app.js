@@ -1,5 +1,6 @@
 'use strict';
-const APP_VERSION = 'v20';
+const APP_VERSION = 'v21';
+let TASKS_UNDO = null; // sauvegarde en mémoire de la dernière suppression globale de tâches
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 
 // ───────── Utilitaires ─────────
@@ -95,8 +96,11 @@ function migrate() {
   }
   if (!S.settings.mig.constatFruits) { // rappel annuel « Constat : quantité de fruits » (olivier), dont la réalisation = constat de fruits
     const NEW = { month: 10, type: 'constat', label: 'Constat : quantité de fruits' };
+    // Si le registre contient déjà cette ligne (autre appareil / nouvelle installation), la migration a déjà eu lieu ailleurs :
+    // ne pas recréer de tâches (l'utilisateur a pu les supprimer).
+    const already = S.registry.some(f => norm(f.type) === 'olivier' && (f.plan || []).some(p => p.type === 'constat'));
     S.registry.forEach(f => { if (norm(f.type) === 'olivier' && (f.plan || []).length && !f.plan.some(p => p.type === 'constat')) { f.plan.push({ ...NEW }); f.plan.sort((a, b) => a.month - b.month); } });
-    S.trees.filter(t => alive(t) && norm(t.type) === 'olivier').forEach(t => addPlanTask(t, NEW)); // uniquement cette tâche : on ne recrée pas celles que vous auriez supprimées
+    if (!already) S.trees.filter(t => alive(t) && norm(t.type) === 'olivier').forEach(t => addPlanTask(t, NEW)); // uniquement cette tâche : on ne recrée pas celles que vous auriez supprimées
     S.settings.mig.constatFruits = true; save();
   }
 }
@@ -665,7 +669,7 @@ function viewMore() {
     <h2>🔔 Rappels sur le téléphone</h2><div class="card"><p class="small muted">Exporte les tâches et périodes de récolte en fichier calendrier (.ics) à ouvrir avec Google Agenda / Apple Calendrier : notification la veille à 9 h, répétitions annuelles incluses. À refaire après avoir ajouté de nouvelles tâches.</p><button class="btn block" data-act="ics">📅 Exporter vers mon agenda (.ics)</button></div>
     <h2>📈 Récoltes (kg) par type</h2><div class="card">${yrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${yrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(hv).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${yrs.map(a => `<td>${hv[k][a] ? Math.round(hv[k][a] * 10) / 10 : '—'}</td>`).join('')}</tr>`).join('')}</table>` : '<span class="muted">Aucune récolte saisie.</span>'}</div>
     <h2>🍎 Charge en fruits moyenne (0–6)</h2><div class="card">${fYrs.length ? `<table class="yr" style="font-size:.85rem"><tr><th></th>${fYrs.map(a => `<th>${a}</th>`).join('')}</tr>${Object.keys(fr).sort().map(k => `<tr><td class="lab">${esc(k)}</td>${fYrs.map(a => { const v = fr[k][a]; if (!v) return '<td>—</td>'; const m = v.reduce((p, q) => p + q, 0) / v.length; return `<td><b style="color:${LEVEL_COLORS[Math.round(m)]}">${lvlFR(m)}</b> <span class="muted">(${v.length})</span></td>`; }).join('')}</tr>`).join('')}</table><p class="muted small">0 = pas de fruits … 6 = énormément. Entre parenthèses : nombre d’arbres avec un constat.</p>` : '<span class="muted">Aucun constat de fruits.</span>'}</div>
-    <h2>🛠️ Données</h2><div class="card"><button class="btn block" data-act="mergeDefaults">Ajouter les fiches par défaut manquantes</button><button class="btn danger block" data-act="wipe">Tout effacer</button></div>
+    <h2>🛠️ Données</h2><div class="card"><button class="btn danger block" data-act="delAllTasks">🗑️ Supprimer toutes les tâches planifiées (${S.tasks.filter(t => !t.done).length})</button>${TASKS_UNDO ? `<button class="btn block" data-act="undoDelTasks">↩️ Annuler la suppression (${TASKS_UNDO.length} tâches)</button>` : ''}<button class="btn block" data-act="mergeDefaults">Ajouter les fiches par défaut manquantes</button><button class="btn danger block" data-act="wipe">Tout effacer</button></div>
     <p class="muted small" style="text-align:center">Mes Arbres · version ${APP_VERSION} · fonctionne hors-ligne · ${y}</p>`;
 }
 
@@ -751,6 +755,13 @@ const actions = {
   share: async () => { const b = await buildBackup(), f = new File([b], backupName(), { type: 'application/json' }); if (navigator.canShare({ files: [f] })) navigator.share({ files: [f], title: 'Sauvegarde Mes Arbres' }).catch(() => {}); else toast('Partage non supporté'); },
   ics: () => download(buildICS(), 'mes-arbres.ics'),
   mergeDefaults: () => { const add = seedRegistry(S.registry); S.registry.push(...add); save(); toast(add.length + ' fiche(s) ajoutée(s)'); },
+  delAllTasks: () => {
+    const open = S.tasks.filter(t => !t.done); if (!open.length) { toast('Aucune tâche planifiée'); return; }
+    const plan = open.filter(t => t.tplKey).length, late = open.filter(t => t.date < todayISO()).length;
+    if (!confirm(`Supprimer TOUTES les tâches planifiées ?\n\n${open.length} tâche(s) non terminée(s) : ${plan} issue(s) du plan type, ${open.length - plan} créée(s) à la main (dont ${late} en retard).\n\nLes tâches déjà terminées et le journal sont conservés. Les tâches répétitives disparaissent aussi. Vous pourrez annuler tant que vous ne fermez pas l’appli.`)) return;
+    TASKS_UNDO = open.map(t => ({ ...t })); S.tasks = S.tasks.filter(t => t.done); save(); render(); toast(`${open.length} tâches supprimées`);
+  },
+  undoDelTasks: () => { if (!TASKS_UNDO) return; S.tasks.push(...TASKS_UNDO); const n = TASKS_UNDO.length; TASKS_UNDO = null; save(); render(); toast(`${n} tâches rétablies`); },
   wipe: async () => { if (!confirm('Effacer TOUTES les données (arbres, journal, tâches, fiches) ? Si la synchronisation est active, elles seront aussi supprimées sur les autres appareils.') || !confirm('Dernière confirmation : action irréversible.')) return; await DB.clear('photos'); photoURLs.clear(); S = { v: 1, trees: [], logs: [], tasks: [], registry: seedRegistry(), settings: {} }; save(); render(); }
 };
 document.addEventListener('click', e => {
