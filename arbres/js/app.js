@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = 'v21';
+const APP_VERSION = 'v22';
 let TASKS_UNDO = null; // dernier nettoyage des tâches en retard, annulable tant que l'appli reste ouverte
 /* Mes Arbres — PWA hors-ligne. Données: IndexedDB (état JSON + photos en Blob). */
 

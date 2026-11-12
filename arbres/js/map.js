@@ -1,7 +1,10 @@
 'use strict';
 /* Plan interactif des arbres (Leaflet embarqué, fonctionne sans réseau pour les points ;
    les fonds de carte satellite / OpenStreetMap demandent une connexion). */
-const MAPUI = { rows: true, layer: 'type', base: 'sat', filter: '', edit: false, mode: null, target: null, focus: null, center: null, zoom: null };
+const LABEL_MODES = { name: 'nom complet', num: 'numéro seul', none: 'aucune' }; // étiquettes affichées à côté des points (à partir du zoom 19)
+const prefGet = (k, d) => { try { return localStorage.getItem('arbres.' + k) || d; } catch (e) { return d; } };
+const prefSet = (k, v) => { try { localStorage.setItem('arbres.' + k, v); } catch (e) { /* ignoré */ } };
+const MAPUI = { rows: true, labels: LABEL_MODES[prefGet('labels', 'name')] ? prefGet('labels', 'name') : 'name', layer: 'type', base: 'sat', filter: '', edit: false, mode: null, target: null, focus: null, center: null, zoom: null };
 let MAP = null, ROWS = null, MARKERS = null, BASE = null, ME = null, WATCH = null, GPS = null;
 
 const TYPE_PALETTE = ['#2f8f4f', '#d9822b', '#7a5cc2', '#2a8fbd', '#c9484a', '#a0a830', '#c2569b', '#5b6b7b', '#8a5a2b', '#1f9e8f'];
@@ -60,6 +63,7 @@ function panelHTML() {
       <button class="btn sm col" data-act="mapRow">↔️ Aligner une rangée</button></div>
       <div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapAssign">📋 Définir une rangée</button>
       <button class="btn sm col${MAPUI.rows ? ' primary' : ''}" data-act="mapRows">〰️ Traits de rangées : ${MAPUI.rows ? 'oui' : 'non'}</button></div>
+      <div class="row" style="margin-top:6px"><button class="btn sm col${MAPUI.labels === 'none' ? '' : ' primary'}" data-act="mapLabels">🏷️ Étiquettes : ${LABEL_MODES[MAPUI.labels]}</button></div>
       ${MAPUI.undo ? `<div class="row" style="margin-top:6px"><button class="btn sm col" data-act="mapUndo">↩️ Annuler l’alignement de « ${esc(MAPUI.undo.row)} »</button></div>` : ''}
       <p class="small muted" style="margin:6px 0 0">Les traits relient les arbres d’une rangée dans l’ordre ; un trait <b style="color:#d64545">rouge pointillé</b> signale un écart anormal (souvent une erreur d’ordre ou un arbre mal placé).</p>
       ${MAPUI.edit ? '<p class="small muted">Maintenez et glissez un point pour corriger sa position.</p>' : ''}`;
@@ -126,6 +130,8 @@ function initMap() {
   if (GPS) drawMe();
   if (MAPUI.mode === 'survey') startWatch();
 }
+// Étiquette « numéro seul » : n° dans la rangée, sinon dernier nombre du nom (ex. « Olivier Chemlali 12 » → 12), sinon le nom
+const labelNum = t => (t.pos ? String(t.pos) : ((/(\d+)\s*$/.exec(t.name || '') || [])[1] || t.name));
 function drawMarkers() {
   if (!MARKERS) return [];
   MARKERS.clearLayers(); const pts = [];
@@ -133,7 +139,7 @@ function drawMarkers() {
     const icon = L.divIcon({ className: 'tm', html: `<i style="background:${markerColor(t)}"></i>`, iconSize: [18, 18] });
     const m = L.marker([t.lat, t.lng], { icon, draggable: MAPUI.edit, keyboard: false, title: t.name });
     m._tid = t.id;
-    m.bindTooltip(esc(t.name), { permanent: true, direction: 'top', offset: [0, -8], className: 'lbl' });
+    if (MAPUI.labels !== 'none') m.bindTooltip(esc(MAPUI.labels === 'num' ? labelNum(t) : t.name), { permanent: true, direction: 'top', offset: [0, -8], className: 'lbl' });
     const a = age(t);
     m.bindPopup(`<b>${esc(t.name)}</b><br>${esc(treeFull(t))}${a != null ? ' · ' + a + ' an' + (a > 1 ? 's' : '') : ''}<br><span class="small">${t.status !== 'bon' ? esc(STATUS[t.status][0]) + ' · ' : ''}${t.gpsAcc ? 'GPS ± ' + t.gpsAcc + ' m' : ''}</span><br>
       <a href="#/arbre/${t.id}"><b>Ouvrir la fiche →</b></a>`, { closeButton: false });
@@ -330,6 +336,7 @@ Object.assign(actions, {
   mapRow: rowForm,
   mapUndo: undoAlign,
   mapAssign: assignForm,
+  mapLabels: () => { const ks = Object.keys(LABEL_MODES); MAPUI.labels = ks[(ks.indexOf(MAPUI.labels) + 1) % ks.length]; prefSet('labels', MAPUI.labels); drawMarkers(); refreshPanel(); },
   mapRows: () => { MAPUI.rows = !MAPUI.rows; drawRows(); refreshPanel(); },
   ordPick: ({ id }) => { const k = ORDER.indexOf(id); if (k >= 0) ORDER.splice(k, 1); else ORDER.push(id); updOrder(); }
 });
